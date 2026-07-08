@@ -1,0 +1,9 @@
+# IHI ブランド資産（公式テンプレート・ロゴ）は public リポジトリに含めない
+ihi-slides/
+ihi-excel/
+
+# Anthropic 公式ドキュメントスキル（source-available・再配布禁止）は public に含めない
+docx/
+pptx/
+xlsx/
+pdf/
