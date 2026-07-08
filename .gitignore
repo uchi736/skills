@@ -1,0 +1,8 @@
+# ブランド資産・生成物は各スキルの .gitignore（assets/brand/ 等）で除外する。
+# corp-slides / corp-excel はコードとドキュメントのみ追跡される。
+
+# Anthropic 公式ドキュメントスキル（source-available・再配布禁止）は public に含めない
+docx/
+pptx/
+xlsx/
+pdf/

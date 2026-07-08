@@ -1,0 +1,4 @@
+# 生成物(build_template.py で再生成可能)
+assets/
+__pycache__/
+*.pyc

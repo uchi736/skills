@@ -1,0 +1,8 @@
+# ブランド資産(公式テンプレ=ロゴ・意匠を含む)は共有リポジトリに載せない
+assets/brand/
+# 生成物(build_template.py で再生成可能)
+assets/*.pptx
+assets/*.png
+assets/*_png/
+__pycache__/
+*.pyc
