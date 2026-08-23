@@ -1,0 +1,33 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+/* ==== 自社ハウストークン(corp_pptx.py のパレットと同一。これ以外の色は使わない) ==== */
+:root{
+  --navy:#01357A; --blue:#004EA2; --blue-tx:#00549A; --steel:#3377AE;
+  --cyan:#00BCEB; --cyansub:#66C5DC; --teal:#00BB99; --red:#C00000;
+  --bg:#F0F5F8; --ltblue:#D6ECF7; --ink:#262626; --ink2:#4D4D4D;
+  --grey:#A6A6A6; --grid:#E3E7EC;
+}
+*{box-sizing:border-box;margin:0;padding:0;font-family:"Yu Gothic","Yu Gothic UI",sans-serif}
+/* キャンバス比は本文エリア(約2.35:1)に合わせる。既定 1600x680。
+   html2png.py の --size と一致させること */
+body{width:1600px;height:680px;background:#fff;padding:8px;overflow:hidden}
+
+/* ==== 基本部品 ==== */
+.bar{background:var(--navy);color:#fff;font-weight:bold;border-radius:8px;
+     display:flex;align-items:center;justify-content:center}
+.card{background:var(--bg);border:1px solid var(--grid);border-radius:12px}
+.tag{display:inline-block;border:1.5px solid var(--grey);color:var(--ink2);
+     border-radius:999px;padding:4px 16px;font-size:15px;background:#fff}
+.icircle{border-radius:50%;background:var(--ltblue);
+         display:flex;align-items:center;justify-content:center}
+.blue{color:var(--blue-tx)} .muted{color:var(--ink2)}
+ul.dots{list-style:none}
+ul.dots li{position:relative;padding-left:1.2em;color:var(--ink)}
+ul.dots li::before{content:"●";position:absolute;left:0;top:.35em;font-size:.55em;color:var(--ink)}
+</style>
+<body>
+<!-- ここに図を組む。規律はネイティブ型と同じ:
+     影・グラデーション・多色・絵文字を使わない / 色はトークンのみ /
+     フォントは游ゴシック / SVGアイコンは stroke=var(--blue) の線画で統一 -->
+</body>
