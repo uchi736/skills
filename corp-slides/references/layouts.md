@@ -1,6 +1,6 @@
-# レイアウトカタログ(全13型)
+# レイアウトカタログ(全17型)
 
-すべて `scripts/corp_pptx.py` の `Deck` メソッド。**この13型の組み合わせだけでデッキを構成する**。
+すべて `scripts/corp_pptx.py` の `Deck` メソッド。**この17型の組み合わせだけでデッキを構成する**。
 各メソッドは公式テンプレの対応レイアウト(表紙/目次/扉/本文ページ/最終ページ)にスライドを
 追加するため、ロゴ・タイトル罫線・フッター・ページ番号は自動で付く。型に合わない要求が来たら、
 まず最も近い型に内容を再分解できないか考える。それでも無理な場合のみ `Deck` の低レベルAPI
@@ -8,7 +8,19 @@
 枠組みを維持する。キャンバスは 14.347×8.071 inch。本文の安全領域は
 x: `MX`(0.87)〜13.47 / y: `BODY_TOP`(1.30)〜`BODY_BOT`(7.45)。
 
-各型とも `d.note("...")` を直後に呼ぶとスピーカーノートを付けられる。
+## 基本骨格と共通スロット(全型共通)
+
+どのスライドも **「タイトル → ▍キーメッセージ(lead=) → 内容 → 軽い結論帯(takeaway=)」**
+の縦一本に載る:
+
+- `lead=` — ▍青バー+太字のキーメッセージ。必須(1スライド1つ)。
+- `takeaway=` — 内容の下に敷く淡青の「軽い結論帯」。締めの一文が言えるスライドにだけ置く
+  (content/boxes/kpi/chart/table/timeline/matrix系/gantt/process/reason_tree 対応。
+  内容は自動で上に詰まり、注記・出典とも衝突しない)。flow は同等の `band=` を持つ。
+- `note=` / `source=` — 「注:」「出典:」の2行フッター。
+- chart系はさらに `subtitle=`(定義行)と `sowhat=`(構造化パネル)を持つ(⑦参照)。
+
+各型とも `d.note("...")` を直後に呼ぶとスピーカーノートを付けられる(引数の note= とは別物)。
 
 ---
 
@@ -42,14 +54,16 @@ d.section(number, title)
 ## ④ content — 箇条書き
 
 ```python
-d.content(title, lead=None, bullets=None, source=None)
+d.content(title, lead=None, bullets=None, source=None, style="ladder",
+          note=None, takeaway=None)
 # bullets: ["文"] または [("親", ["子1", ("子2", ["孫"])])] — 最大3階層
 ```
 - **用途**: 主張+根拠の標準型。迷ったらこれ。
-- 階層マーカーは全型共通のラダー **●→□→‐** に自動統一される(SKILL.md参照)。
-- lead は必ず書く(このスライドの結論1〜2行)。lead なしの箇条書きは避ける。
-- 親は最大6個、子は親1つにつき最大3個。第3階層は本当に必要なときだけ。
-- 1項目2行以内。あふれたらスライドを分ける。
+- 階層はハウスラダー **親■太字16pt → 子●14pt(全角2字下げ) → 孫□12ptグレー(全角4字下げ)**
+  に自動統一(SKILL.md参照)。孫は「例:○○」の置き場。
+- 収まらない時だけ 16→15→14pt に自動縮小(下限14)。それでも溢れる分量はスライドを分ける。
+- `style="blocks"` で見出し段組(マーカーなし・罫線区切り・4グループ以上は自動2カラム)。
+- lead は必ず書く。親は最大6個、子は親1つにつき最大3個。1項目2行以内。
 
 ## ⑤ boxes — ボックス対比(2〜3列)
 
@@ -66,8 +80,8 @@ d.boxes(title, boxes, lead=None, arrow=False)
 ## ⑥ kpi — 数値ハイライト(2〜4タイル)
 
 ```python
-d.kpi(title, kpis, lead=None, source=None)
-# kpis: [(ラベル, 値, 単位, 補足|None), ...]
+d.kpi(title, kpis, lead=None, source=None, emphasize=None, takeaway=None)
+# kpis: [(ラベル, 値, 単位, 補足|None), ...]  emphasize: 主役タイルのindex(濃紺反転)
 ```
 - **用途**: 決算ハイライト、目標値、実績サマリ。
 - 値は文字列。**先頭 `+`/`▲` → 緑(TEAL)、`-`/`△`/`▼` → 赤** に自動色分け。中立は青。
@@ -78,16 +92,20 @@ d.kpi(title, kpis, lead=None, source=None)
 
 ```python
 d.chart(title, kind, categories, series, lead=None, unit=None,
-        points=None, value_fmt="#,##0", source=None)
+        points=None, value_fmt="#,##0", source=None, subtitle=None,
+        highlight=None, bracket=None, sowhat=None, sowhat_intro=None,
+        takeaway=None, note=None)
 # kind: "bar"(集合縦棒) | "stack"(積上げ) | "line"(折れ線) | "waterfall"(滝)
 # series: [(系列名, [値...]), ...] — waterfall は1系列で [期首, ±増減..., 期末(None可)]
 ```
 - **用途**: 推移(bar/line)、構成比の推移(stack)、増減の要因分解(waterfall)。
+- **強調の語彙(単色チャートの作法)**: `subtitle=` 定義行(何の図か+軸・単位) /
+  `highlight=` 主役の棒だけ濃紺・他は淡青(単系列bar) / `bracket=(i0,i1,ラベル)` 範囲の括り注記 /
+  `sowhat=[(ラベル,主張,説明|None),...]`+`sowhat_intro="読み方"` 右1/3の構造化So Whatパネル。
 - 系列色は自動(BLUE→CYANSUB→TEAL→…)。**指定順=強調順**。主役の系列を最初に置く。
 - 単系列barは自動でデータラベル(太字)が付く。stackは白ラベル。
-- points(右のポイント欄)推奨。グラフだけ貼って読み手に解釈を委ねない。
-- カテゴリは最大8個、系列は最大4個。超えるならデータを集約する。
-- 詳細規定は charts-tables.md。
+- sowhat か points を必ず付ける。グラフだけ貼って読み手に解釈を委ねない。
+- カテゴリは最大8個、系列は最大4個。超えるならデータを集約する。詳細は charts-tables.md。
 
 ## ⑧ table — ネイティブ表
 
@@ -168,6 +186,47 @@ d.flow(title, nodes, arrows=None, lead=None, band=None, source=None)
 - 矢印の意匠は右向き三角形 ▶(`tri_right()`)。ブロック矢印には戻さない(ハウス好み)。
 - 小見出し(sub)はボックス内の**タグ(角丸チップ)**として描画される。全幅の帯にはしない(ハウス好み)。
 
+## ⑮ exec_summary — エグゼクティブサマリ
+
+```python
+d.exec_summary(title, conclusion, reasons, ask=None, lead=None, source=None, note=None)
+# conclusion: 結論の一文(濃紺帯・白抜き)  reasons: [(見出し, 本文, 参照頁|None), ...] 2〜3個
+# ask: (タグ, 本文, 補足|None) — 末尾の依頼・ネクストアクション帯。省略可
+```
+- **用途**: 冒頭の「本日の要旨」1枚。結論帯 → 理由01〜03カード → お願い帯の3段。
+- lead 省略時は結論帯がキーメッセージを兼ねる。理由本文は2〜3行、参照頁(詳細 P.xx)を付けると強い。
+
+## ⑯ reason_tree — 結論→根拠ツリー
+
+```python
+d.reason_tree(title, conclusion, reasons, lead=None, source=None, note=None)
+# reasons: [(見出し, 本文, 根拠の一文|None), ...] 2〜3個
+```
+- **用途**: 強み・選定理由の構造化。結論帯から2〜3カードへ分岐、各カード下部に「根拠」チップ。
+- 根拠には数字を入れる(例「有資格者120名が在籍」)。根拠の無いカードが混ざると全体が弱る。
+
+## ⑰ gantt — スイムレーン・ガント
+
+```python
+d.gantt(title, columns, lanes, phases=None, milestones=None, lead=None,
+        source=None, note=None, takeaway=None)
+# columns: 時間軸ラベル(等幅)   phases: [(帯ラベル, 開始列, 終了列)](0始まり・両端含む)
+# lanes: [(レーン名, [(バーlabel, 開始列, 終了列, style), ...]), ...]
+#   style: "solid"=青 | "dark"=濃紺 | "mid"=スチール | "light"=淡青 | "plan"=白+破線(計画)
+# milestones: [(列位置float, ラベル)] — グリッド下の●
+```
+- **用途**: 行程の詳細(フェーズ×ワークストリーム×節目)。粗いフェーズ提示だけなら ⑨ timeline。
+- 破線=計画・未確定の意匠は全型共通。マイルストーンは判断ポイントに絞る(2〜3個)。
+
+## ⑱ process — 壁→打ち手プロセス
+
+```python
+d.process(title, steps, lead=None, source=None, note=None, takeaway=None)
+# steps: [(工程の一文, (壁の一文, 打ち手の一文) | None), ...] 3〜6個
+```
+- **用途**: 手順の説明を「どこで標準が破れ、何を当てるか」の論証に変える。導入計画の定番。
+- 壁が無い工程は None のまま出す。全工程に壁を付けない(壁だらけ=計画になっていない)。
+
 ---
 
 ## 概念図(絵解き)とアイコン — ネイティブ部品で「編集可能な図解」を組む
@@ -212,6 +271,10 @@ d.step_flow(s, d.MX, y0+0.05, d.CW, 1.55,
 ### 規律
 
 - 絵解きは「仕組み・全体像を掴ませる」章頭の1枚が主戦場。論証は表とグラフで行い、連打しない
+- **箱には「役割名+具体例(または数値)」の2層を詰める** — 大きな箱に短文一行だけの
+  「AI図解」は禁止。中身が薄いなら箱を減らして密度を上げる
+  (悪例: 横並び5箱に一行ずつ / 良例: エージェント⇄環境の往復矢印+具体例+目的式のループ図)
+- 構造がループ・往復なら矢印の往復で描く。直列の step_flow に無理に開かない
 - アイコン・色は単色(BLUE系/白)・幾何のみ。多色・立体・絵文字・外部画像は使わない
 
 ### HTML図解ルート(figure型) — 編集性を捨ててよい特殊ケースだけの代替
@@ -246,7 +309,7 @@ cover → toc → section(1) → 本文(content/boxes/kpi/chart/table/timeline/m
 
 | 構造 | 中身 | 主な型 |
 |---|---|---|
-| 順序 | 時系列・プロセス・手順 | timeline / flow |
+| 順序 | 時系列・プロセス・手順 | gantt / process / timeline / flow |
 | 比較 | As-is/To-be・案の対比・競合 | boxes(arrow) / matrix_eval |
 | 分類 | カテゴリ整理・立ち位置(MECE) | matrix_2x2 / table |
 | 問題解決 | 課題→打ち手→効果 | flow / boxes |
@@ -260,16 +323,17 @@ cover → toc → section(1) → 本文(content/boxes/kpi/chart/table/timeline/m
 3. **二次元** — 1枚に3軸以上を詰めない。多ければスライドを分けるか左右分割する
 4. **視覚ボリューム** — 数値の大小は長さ・面積の大小に反映する(chartが担う。表の数字の羅列で済ませない)
 
-### 頻度の目安(デロイト納品351枚の実測分布より)
+### 頻度の目安(コンサル実物資料の実測分布より)
 
-一流の実物資料は「派手な図解」ではなく地味な型の使い倒しでできている:
+一流の実物資料は「派手な図解」ではなく地味な型の使い倒しでできている。
+ただし**各章の頭の概念図は既定**(SKILL.md 手順①d)であり、この頻度論は「連打するな」の意味で読む:
 
-- **論証テーブルが45%** — 課題整理・施策一覧は、まず table を「課題|現状|打ち手」の3列で書く。
-  図解にしたくなっても、まず表。行ごとに論理が完結し、行単位で議論できるのが強み。
-- **図解(絵解き=flow/boxes)は8%の脇役** — 使うのは「冒頭で全体像を掴ませる」1枚だけ。
-  あとは表とグラフで論証する。図解の連打はテンプレ感の元。
-- **フレームワーク(matrix_2x2等)は7%** — 「多数の候補を絞り込む瞬間」専用。見せびらかしに使わない。
-- **チャートは11%** — 飾りで貼らない。必ず points(So What)とセット。
+- **論証テーブルが主力(実測45%)** — 課題整理・施策一覧は、まず table を
+  「課題|現状|打ち手」の3列で書く。行ごとに論理が完結し、行単位で議論できるのが強み。
+- **概念図(絵解き)は章頭に1枚ずつ** — 仕組み・全体像を掴ませる場面専用。
+  本文中で連打するとテンプレ感が出る。論証は表・グラフ・matrix に任せる。
+- **フレームワーク(matrix_2x2等)は「絞り込みの瞬間」専用** — 見せびらかしに使わない。
+- **チャートは必ず sowhat/points とセット** — 飾りで貼らない。
 - **中扉は全体の1割** — 長い資料では惜しまない。迷子防止に効く。
 
 ### 内容パターン→型の逆引き
@@ -278,6 +342,8 @@ cover → toc → section(1) → 本文(content/boxes/kpi/chart/table/timeline/m
 
 | 内容がこれなら | 使う型 |
 |---|---|
+| 資料冒頭の要旨(結論+理由+お願い) | **exec_summary** |
+| 強み・選定理由の構造 | **reason_tree** |
 | 手法・仕組み・アプローチの動作説明 | **概念図**(step_flow / stage_flow / zone+node — 上の「概念図」参照) |
 | 候補を選ぶ・比べる・優先度を付ける | **matrix_eval** |
 | 複数の対象の立ち位置・すみ分けを示す | **matrix_2x2** |
@@ -287,7 +353,9 @@ cover → toc → section(1) → 本文(content/boxes/kpi/chart/table/timeline/m
 | 重要な数値そのもの | kpi |
 | 推移・比較・構成比 | chart |
 | 正確な数値一覧 | table(+highlight_row) |
-| 時間軸の計画 | timeline |
+| 時間軸の計画(粗いフェーズ) | timeline |
+| 行程の詳細(フェーズ×担当×節目) | **gantt** |
+| 手順+どこで詰まり何を当てるか | **process** |
 | 上記のどれでもない主張+根拠 | content |
 
 - **同じ型が2枚続いたら**、次の1枚は図解型(matrix/flow/2x2/chart/timeline)にできないか必ず検討する。
