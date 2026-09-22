@@ -182,6 +182,14 @@ class Deck:
                     s.shapes._spTree.append(copy.deepcopy(ph._element))
             if title is not None and s.shapes.title is not None:
                 s.shapes.title.text_frame.text = title
+            # 未使用の空プレースホルダを除去(編集画面の「テキストを入力」残り防止)
+            for ph in list(s.placeholders):
+                if ph.placeholder_format.type in (PP_PLACEHOLDER.FOOTER,
+                                                  PP_PLACEHOLDER.SLIDE_NUMBER):
+                    continue
+                if ph.has_text_frame and ph.text_frame.text.strip():
+                    continue
+                ph._element.getparent().remove(ph._element)
             return s
         # ---- ダミーモード: 中立の意匠を自前で描く
         s = self.prs.slides.add_slide(self._blank)
@@ -315,7 +323,7 @@ class Deck:
     def zone(self, s, x, y, w, h, title):
         """見出し付きゾーン枠(構築/検索のような対構造に)。中身は低レベルAPIで組む。"""
         self.card(s, x, y, w, h, fill=BG)
-        self.text(s, x + 0.22, y + 0.16, w - 0.44, 0.32, [[(title, 11, True, BLUE_TX)]])
+        self.text(s, x + 0.22, y + 0.16, w - 0.44, 0.32, [[(title, 12, True, BLUE_TX)]])
 
     def tri_down(self, s, cx, y, w=0.30, h=0.26, color=CYAN):
         sp = self.rect(s, cx - w / 2, y, w, h, color, shape=MSO_SHAPE.ISOSCELES_TRIANGLE)
@@ -371,9 +379,9 @@ class Deck:
         cx = x
         if intro:
             self.card(s, cx, y, iw, h, line=STEEL, lw=1.5)
-            self.text(s, cx + 0.18, y + 0.14, iw - 0.36, 0.28, [[(intro[0], 9, False, INK2)]])
+            self.text(s, cx + 0.18, y + 0.14, iw - 0.36, 0.28, [[(intro[0], 10, False, INK2)]])
             self.text(s, cx + 0.18, y + 0.46, iw - 0.36, h - 0.6,
-                      [[(intro[1], 12, True, INK)]], line_spacing=1.3)
+                      [[(intro[1], 13, True, INK)]], line_spacing=1.3)
             cx += iw
             self.tri_right(s, cx + 0.08, y + h / 2 - 0.11, aw - 0.16, 0.22, CYAN)
             cx += aw
@@ -383,9 +391,9 @@ class Deck:
             self.rect(s, cx + 0.16, y + 0.15, 0.28, 0.28, BLUE, shape=MSO_SHAPE.OVAL)
             self.text(s, cx + 0.16, y + 0.15, 0.28, 0.28,
                       [[(str(i + 1), 10, True, "#FFFFFF")]], align="center", anchor="middle")
-            self.text(s, cx + 0.52, y + 0.14, cw_ - 0.66, 0.30, [[(t, 11.5, True, BLUE_TX)]])
+            self.text(s, cx + 0.52, y + 0.14, cw_ - 0.66, 0.30, [[(t, 12.5, True, BLUE_TX)]])
             self.text(s, cx + 0.16, y + 0.54, cw_ - 0.32, h - 0.68,
-                      [[(desc, 9, False, INK2)]], line_spacing=1.25)
+                      [[(desc, 10.5, False, INK2)]], line_spacing=1.25)
             cx += cw_
             if i < n - 1:
                 self.tri_right(s, cx + 0.08, y + h / 2 - 0.11, aw - 0.16, 0.22, CYAN)
@@ -420,7 +428,7 @@ class Deck:
                 tcol = "#FFFFFF"
             if sub:
                 self.text(s, cx + 0.10, y + 0.52, cw_ - 0.20, h - 0.62,
-                          [[(ln, 9, False, tcol)] for ln in str(sub).split("\n")],
+                          [[(ln, 10, False, tcol)] for ln in str(sub).split("\n")],
                           align="center", space_after=2, line_spacing=1.25)
             cx += cw_
             if i < n - 1:
@@ -479,38 +487,51 @@ class Deck:
         return tb
 
     def _lead(self, s, lead, y=None):
-        """キーメッセージ(リード文): ■ + 18〜20pt。短文は20pt、2行になる長文は18pt。"""
+        """キーメッセージ(リード文): ▍青バー+太字。短文は20pt、2行になる長文は18pt。"""
         y = self.BODY_TOP if y is None else y
         if not lead:
             return y + 0.85
         size = 20 if len(lead) <= 40 else 18
-        self.text(s, self.MX + 0.05, y + 0.10, self.CW - 0.15, 1.1,
-                  [[("■", int(size * 0.8), True, INK), ("  " + lead, size, False, INK)]])
+        line_h = size / 72 * 1.35
+        self.rect(s, self.MX + 0.02, y + 0.13, 0.07, line_h * 0.82, BLUE)
+        self.text(s, self.MX + 0.24, y + 0.10, self.CW - 0.35, 1.1,
+                  [[(lead, size, True, INK)]])
         chars_per_line = int(self.CW * 60 / size)   # 全角換算の目安
         lines = max(1, -(-len(lead) // chars_per_line))
-        line_h = size / 72 * 1.35
         return y + 0.10 + line_h * lines + 0.45
 
     # ---------------------------------------------------------------- 階層マーカー(唯一の定義)
-    # 全型共通の3段ラダー: 本文 ●18pt → 　□15pt → 　　‐13pt / 記号は黒(INK)で控えめに
-    # 12pt → 11pt → 10pt(基準時。縮小文脈では比率維持)。他のマーカーは使わない。
-    def bullet(self, text, level=1, size=18, bold=False):
+    # 全型共通ラダー(ハウス指定): 親(子持ち)=■太字16 → 子「●」14 → 孫「□」12グレー
+    # リード(キーメッセージ)は ▍青バー+太字で別格(_lead が描く)。
+    def bullet(self, text, level=1, size=16, bold=False, heading=False):
+        if heading:
+            return [("■", max(8, round(size * 10 / 16)), True, INK),
+                    ("  " + text, size, True, INK)]
         if level <= 1:
-            return [("●", max(8, round(size * 12 / 18)), True, INK), ("  " + text, size, bold, INK)]
+            return [("●", max(8, round(size * 9 / 16)), False, INK),
+                    ("  " + text, size, bold, INK)]
         if level == 2:
-            s = max(10, size - 3)
-            return [("　□", max(8, round(s * 11 / 15)), True, INK), ("  " + text, s, bold, INK)]
-        s = max(9, size - 5)
-        return [("　　‐", max(8, round(s * 10 / 13)), False, INK), ("  " + text, s, bold, INK2)]
+            s = max(10, size - 2)
+            return [("　　", s, False, INK),
+                    ("●", max(8, round(s * 9 / 14)), False, INK),
+                    ("  " + text, s, bold, INK)]
+        s = max(9, size - 4)
+        return [("　　　　", s, False, INK2),
+                ("□", max(8, round(s * 10 / 12)), False, INK2),
+                ("  " + text, s, False, INK2)]
 
-    def nest_paras(self, items, size=18, level=1):
-        """ネストしたリストを段落列に変換。items: ["文", ("親", ["子", ("子2", ["孫"])]), ...]"""
+    def nest_paras(self, items, size=16, level=1):
+        """ネストしたリストを段落列に変換。items: ["文", ("親", ["子", ("子2", ["孫"])]), ...]
+        親(子を持つ項目)は ■太字、子は「●」、孫は「□」。"""
         paras = []
         for it in items:
             if (isinstance(it, (tuple, list)) and len(it) == 2
                     and isinstance(it[1], (list, tuple))):
                 head, kids = it
-                paras.append(self.bullet(head, level, size))
+                if level == 1:
+                    paras.append(self.bullet(head, 1, size, heading=True))
+                else:
+                    paras.append(self.bullet(head, level, size))
                 paras.extend(self.nest_paras(kids, size, min(level + 1, 3)))
             else:
                 paras.append(self.bullet(it, level, size))
@@ -524,7 +545,10 @@ class Deck:
         s = self.prs.slides[-1]
         s.notes_slide.notes_text_frame.text = text
 
-    def _source(self, s, source):
+    def _source(self, s, source, note=None):
+        if note:
+            self.text(s, self.MX, self.H - 0.99, self.CW, 0.3,
+                      [[("注:" + note, 10, False, INK2)]])
         if source:
             self.text(s, self.MX, self.H - 0.78, self.CW, 0.3,
                       [[("出典:" + source, 10, False, INK2)]])
@@ -571,20 +595,104 @@ class Deck:
         return self._slide(LAYOUT_SECTION, title=f"{number}. {title}")
 
     # ---------------------------------------------------------------- ④ 本文・箇条書き
-    def content(self, title, lead=None, bullets=None, source=None):
-        """bullets: ["文"] または [("親", ["子1", ("子2", ["孫"])])] — 最大3階層"""
+    def content(self, title, lead=None, bullets=None, source=None, style="ladder",
+                note=None, takeaway=None):
+        """bullets: ["文"] または [("親", ["子1", ("子2", ["孫"])])] — 最大3階層
+
+        style: "ladder"(既定) — ■→○→- の行頭文字ラダー(ハウス標準の箇条書き)。
+               "blocks" — 親=見出し行(青タック+太字)+子=本文行のブロック段組。
+               グループ間は細罫線、4グループ以上は自動2カラム。見出し性の強い内容向け。
+        """
         s = self._slide(LAYOUT_BODY, title=title)
+        _tb = self._reserve_takeaway(takeaway, source, note)
         y = self._lead(s, lead)
-        paras = self.nest_paras(bullets or [], size=18)
-        if paras:
-            self.text(s, self.MX + 0.15, y, self.CW - 0.3, self.BODY_BOT - y,
-                      paras, space_after=12)
-        self._source(s, source)
+        if style == "ladder" or not bullets:
+            if bullets:
+                # 収まらない時だけ段階縮小(下限14)。行数は折返しも見積もる
+                avail = self.BODY_BOT - y
+                for sz, sp in ((16, 9), (15, 7), (14, 6)):
+                    paras = self.nest_paras(bullets, size=sz)
+                    est = 0.0
+                    for p in paras:
+                        psz = max(r[1] for r in p)
+                        txt = "".join(r[0] for r in p)
+                        cpl = max(int((self.CW - 0.5) / (psz / 72)), 8)
+                        est += psz / 72 * 1.2 * max(1, -(-len(txt) // cpl)) + sp / 72
+                    if est * 1.12 <= avail:
+                        break
+                self.text(s, self.MX + 0.15, y, self.CW - 0.3, avail,
+                          paras, space_after=sp)
+            self._finish_takeaway(s, _tb, takeaway)
+            self._source(s, source, note)
+            return s
+        groups = []
+        for it in bullets:
+            if (isinstance(it, (tuple, list)) and len(it) == 2
+                    and isinstance(it[1], (list, tuple))):
+                groups.append((str(it[0]), list(it[1])))
+            else:
+                groups.append((str(it), []))
+        n = len(groups)
+        two_col = n >= 4
+        gap_col = 0.70
+        tw = (self.CW - gap_col) / 2 - 0.10 if two_col else min(self.CW - 0.1, 10.6)
+
+        def g_height(kids, width):
+            cpl = max(int(width / 0.19), 10)
+            h = 0.40
+            for k in kids:
+                kk, gks = (k if isinstance(k, (tuple, list)) else (k, []))
+                h += 0.28 * max(1, -(-len(str(kk)) // cpl)) + 0.06
+                for gk in gks:
+                    h += 0.26 * max(1, -(-len(str(gk)) // cpl)) + 0.04
+            return h + 0.24
+
+        def draw_group(x, gy, width, head, kids, rule):
+            self.rect(s, x, gy + 0.05, 0.055, 0.26, BLUE)
+            self.text(s, x + 0.16, gy, width - 0.16, 0.34, [[(head, 15, True, BLUE_TX)]])
+            yy = gy + 0.44
+            cpl = max(int(width / 0.19), 10)
+            for k in kids:
+                kk, gks = (k if isinstance(k, (tuple, list)) else (k, []))
+                self.text(s, x + 0.20, yy, width - 0.20, 0.6,
+                          [[(str(kk), 13, False, INK2)]], line_spacing=1.3)
+                yy += 0.28 * max(1, -(-len(str(kk)) // cpl)) + 0.06
+                for gk in gks:
+                    self.text(s, x + 0.38, yy, width - 0.38, 0.5,
+                              [[("- " + str(gk), 12, False, GREY)]])
+                    yy += 0.26 * max(1, -(-len(str(gk)) // cpl)) + 0.04
+            if rule:
+                self.rect(s, x, yy + 0.10, width, 0.012, GRID)
+            return yy + 0.26
+
+        if two_col:
+            half = -(-n // 2)
+            for ci, col in enumerate((groups[:half], groups[half:])):
+                x = self.MX + 0.05 + ci * (tw + 0.10 + gap_col)
+                avail = self.BODY_BOT - 0.15 - y
+                total = sum(g_height(k, tw) for _, k in col)
+                extra = (min(0.45, max(0.0, (avail - total) / max(len(col) - 1, 1) * 0.5))
+                         if len(col) > 1 else 0.0)
+                yy = y
+                for gi, (head, kids) in enumerate(col):
+                    yy = draw_group(x, yy, tw, head, kids, gi < len(col) - 1) + extra
+        else:
+            avail = self.BODY_BOT - 0.15 - y
+            total = sum(g_height(k, tw) for _, k in groups)
+            extra = (min(0.30, max(0.0, (avail - total) / max(n - 1, 1) * 0.6))
+                     if n > 1 else 0.0)
+            yy = y
+            for gi, (head, kids) in enumerate(groups):
+                yy = draw_group(self.MX + 0.05, yy, tw, head, kids, gi < n - 1) + extra
+        self._finish_takeaway(s, _tb, takeaway)
+        self._source(s, source, note)
         return s
 
     # ---------------------------------------------------------------- ⑤ ボックス対比(2〜3列)
-    def boxes(self, title, boxes, lead=None, arrow=False):
+    def boxes(self, title, boxes, lead=None, arrow=False, source=None, note=None,
+              takeaway=None):
         s = self._slide(LAYOUT_BODY, title=title)
+        _tb = self._reserve_takeaway(takeaway, source, note)
         y0 = self._lead(s, lead) - 0.15
         n = len(boxes)
         gap = 0.58 if arrow else 0.30
@@ -602,15 +710,18 @@ class Deck:
                 self._tag(s, x + 0.30, iy, sub)
                 iy += 0.48
             self.text(s, x + 0.30, iy, w - 0.60, bot - iy - 0.17,
-                      self.nest_paras(items, size=12), space_after=8)
+                      self.nest_paras(items, size=13), space_after=8)
             if arrow and i < n - 1:
                 self.tri_right(s, x + w + 0.08, (y0 + bot) / 2 - 0.26,
                                gap - 0.16, 0.52, CYAN)
+        self._finish_takeaway(s, _tb, takeaway)
+        self._source(s, source, note)
         return s
 
     # ---------------------------------------------------------------- ⑥ KPIハイライト
-    def kpi(self, title, kpis, lead=None, source=None):
+    def kpi(self, title, kpis, lead=None, source=None, emphasize=None, takeaway=None):
         s = self._slide(LAYOUT_BODY, title=title)
+        _tb = self._reserve_takeaway(takeaway, source)
         y0 = self._lead(s, lead) - 0.05
         n = len(kpis)
         gap = 0.32
@@ -619,42 +730,70 @@ class Deck:
         for i, item in enumerate(kpis):
             label, value, unit, note = (list(item) + [None] * 4)[:4]
             x = self.MX + i * (w + gap)
-            self.rect(s, x, y0, w, h, BG)
-            self.rect(s, x, y0, w, 0.07, BLUE)
+            emp = (emphasize == i)   # 主役タイルだけ濃紺反転(1点強調)
+            self.rect(s, x, y0, w, h, NAVY if emp else BG)
+            self.rect(s, x, y0, w, 0.07, CYAN if emp else BLUE)
             self.text(s, x + 0.2, y0 + 0.30, w - 0.4, 0.5,
-                      [[(label, 14, True, INK)]], align="center")
+                      [[(label, 14, True, "#FFFFFF" if emp else INK)]], align="center")
             vcolor = BLUE
-            if str(value).startswith(("+", "▲")):
+            if emp:
+                vcolor = "#FFFFFF"
+            elif str(value).startswith(("+", "▲")):
                 vcolor = TEAL
             elif str(value).startswith(("-", "−", "△", "▼")):
                 vcolor = RED
             vsize = 40 if len(str(value)) <= 6 else (32 if len(str(value)) <= 9 else 26)
             runs = [(str(value), vsize, True, vcolor)]
             if unit:
-                runs.append((" " + unit, 16, True, INK2))
+                runs.append((" " + unit, 16, True, LTBLUE if emp else INK2))
             self.text(s, x + 0.2, y0 + h / 2 - 0.42, w - 0.4, 1.0, [runs],
                       align="center", anchor="middle")
             if note:
                 self.text(s, x + 0.2, y0 + h - 0.62, w - 0.4, 0.5,
-                          [[(note, 11, False, INK2)]], align="center")
+                          [[(note, 11, False, LTBLUE if emp else INK2)]], align="center")
+        self._finish_takeaway(s, _tb, takeaway)
         self._source(s, source)
         return s
 
     # ---------------------------------------------------------------- ⑦ ネイティブチャート
     def chart(self, title, kind, categories, series, lead=None, unit=None,
-              points=None, value_fmt="#,##0", source=None):
+              points=None, value_fmt="#,##0", source=None, subtitle=None,
+              highlight=None, bracket=None, sowhat=None, sowhat_intro=None,
+              takeaway=None, note=None):
         s = self._slide(LAYOUT_BODY, title=title)
         y0 = self._lead(s, lead)
-        cw = self.CW * 0.64 if points else self.CW
-        if unit:
-            self.text(s, self.MX, y0 - 0.05, 3.0, 0.3,
-                      [[(f"(単位:{unit})", 10, False, INK2)]])
-        ch_y = y0 + 0.25
-        ch_h = self.BODY_BOT - 0.10 - ch_y
+        panel = bool(points or sowhat)
+        cw = self.CW * 0.64 if panel else self.CW
+        if subtitle:
+            # 定義行: 何のグラフか+軸・範囲の定義(参考: コンサル型の副題スロット)
+            self.rect(s, self.MX + 0.02, y0 + 0.04, 0.055, 0.23, BLUE)
+            self.text(s, self.MX + 0.16, y0, cw - 2.3, 0.3,
+                      [[(subtitle, 12.5, True, INK)]])
+            if unit:
+                self.text(s, self.MX + cw - 2.2, y0 + 0.02, 2.2, 0.3,
+                          [[(f"(単位:{unit})", 10, False, INK2)]], align="right")
+            ch_y = y0 + 0.44
+        else:
+            if unit:
+                self.text(s, self.MX, y0 - 0.05, 3.0, 0.3,
+                          [[(f"(単位:{unit})", 10, False, INK2)]])
+            ch_y = y0 + 0.25
+        bot_lim = self.BODY_BOT - 0.10
+        if note:                      # 注・出典の行とチャート下端の衝突を防ぐ
+            bot_lim = min(bot_lim, self.H - 1.06)
+        elif source:
+            bot_lim = min(bot_lim, self.H - 0.86)
+        ch_h = bot_lim - ch_y
+        if takeaway:
+            ch_h -= 0.64
         if kind == "waterfall":
             self._waterfall(s, self.MX, ch_y, cw, ch_h, categories, series[0][1])
-            self._points_panel(s, ch_y, ch_h, cw, points)
-            self._source(s, source)
+            if sowhat:
+                self._sowhat_panel(s, ch_y, ch_h, cw, sowhat, intro=sowhat_intro)
+            else:
+                self._points_panel(s, ch_y, ch_h, cw, points)
+            self._takeaway_band(s, ch_y + ch_h, takeaway)
+            self._source(s, source, note)
             return s
         data = CategoryChartData()
         data.categories = categories
@@ -688,6 +827,14 @@ class Deck:
                 ser.format.fill.solid()
                 ser.format.fill.fore_color.rgb = col
                 ser.format.line.fill.background()
+        if kind == "bar" and len(series) == 1 and highlight is not None:
+            # 主役の棒だけ濃紺、他は淡青(単色チャートの1点強調)
+            hl = {highlight} if isinstance(highlight, int) else set(highlight)
+            ser0 = plot.series[0]
+            for pi in range(len(categories)):
+                pt = ser0.points[pi]
+                pt.format.fill.solid()
+                pt.format.fill.fore_color.rgb = _rgb(NAVY if pi in hl else RAMP[0])
         if kind == "bar" and len(series) == 1:
             plot.has_data_labels = True
             dl = plot.data_labels
@@ -719,8 +866,27 @@ class Deck:
         val.tick_labels.font.name = YU
         val.tick_labels.number_format = value_fmt
         val.tick_labels.number_format_is_linked = False
-        self._points_panel(s, ch_y, ch_h, cw, points)
-        self._source(s, source)
+        if bracket and kind == "bar":
+            # 範囲ブラケット注記(位置はプロット領域の近似。上に余白を確保する)
+            vmax = max(v for _, vals in series for v in vals if v is not None)
+            val.maximum_scale = vmax * 1.32
+            i0, i1, blab = bracket
+            px0 = self.MX + 0.52
+            slot = (self.MX + cw - 0.10 - px0) / max(len(categories), 1)
+            bx0 = px0 + slot * (i0 + 0.10)
+            bx1 = px0 + slot * (i1 + 0.90)
+            self.text(s, bx0 - 0.8, ch_y + 0.02, (bx1 - bx0) + 1.6, 0.26,
+                      [[(blab, 11, True, BLUE_TX)]], align="center")
+            by = ch_y + 0.32
+            self.rect(s, bx0, by, bx1 - bx0, 0.018, BLUE_TX)
+            self.rect(s, bx0, by, 0.018, 0.09, BLUE_TX)
+            self.rect(s, bx1 - 0.018, by, 0.018, 0.09, BLUE_TX)
+        if sowhat:
+            self._sowhat_panel(s, ch_y, ch_h, cw, sowhat, intro=sowhat_intro)
+        else:
+            self._points_panel(s, ch_y, ch_h, cw, points)
+        self._takeaway_band(s, ch_y + ch_h, takeaway)
+        self._source(s, source, note)
         return s
 
     def _points_panel(self, s, ch_y, ch_h, cw, points):
@@ -734,7 +900,68 @@ class Deck:
                   align="center", anchor="middle")
         self.rect(s, px, ch_y + 0.46, pw, ch_h - 0.46, BG)
         self.text(s, px + 0.22, ch_y + 0.72, pw - 0.44, ch_h - 0.95,
-                  self.nest_paras(points, size=12), space_after=10)
+                  self.nest_paras(points, size=13), space_after=10)
+
+    def _takeaway_band(self, s, y, takeaway):
+        """図解の下に敷く「まとめ帯」(takeaway が無ければ何もしない)"""
+        if not takeaway:
+            return
+        self.rect(s, self.MX, y + 0.18, self.CW, 0.50, LTBLUE)
+        self.text(s, self.MX + 0.28, y + 0.18, self.CW - 0.56, 0.50,
+                  [[(takeaway, 14, True, BLUE_TX)]], anchor="middle")
+
+    def _reserve_takeaway(self, takeaway, source=None, note=None):
+        """軽い結論帯(takeaway)の場所を本文下に確保する。全型共通スロット。
+        型メソッド冒頭で _tb = self._reserve_takeaway(...) と呼び、
+        末尾で self._finish_takeaway(s, _tb, takeaway)。戻り値は元の BODY_BOT。"""
+        if not takeaway:
+            return None
+        orig = self.BODY_BOT
+        bot = orig
+        if note:
+            bot = min(bot, self.H - 1.06)
+        elif source:
+            bot = min(bot, self.H - 0.86)
+        self.BODY_BOT = bot - 0.72
+        return orig
+
+    def _finish_takeaway(self, s, orig, takeaway):
+        if orig is None:
+            return
+        self._takeaway_band(s, self.BODY_BOT - 0.12, takeaway)
+        self.BODY_BOT = orig
+
+    def _sowhat_panel(self, s, ch_y, ch_h, cw, items, intro=None, title="So What|読み筋"):
+        """chart 系の右側の構造化 So What パネル(points= の上位版)。
+        items: [(ラベル, 主張, 説明|None), ...] 2〜3件。intro は「読み方」1行。"""
+        px = self.MX + cw + 0.32
+        pw = self.W - self.MX - px
+        self.rect(s, px, ch_y, pw, 0.46, NAVY)
+        self.text(s, px + 0.22, ch_y, pw - 0.44, 0.46,
+                  [[(title, 13, True, "#FFFFFF")]], anchor="middle")
+        self.rect(s, px, ch_y + 0.46, pw, ch_h - 0.46, BG)
+        yy = ch_y + 0.68
+        cpl = max(int((pw - 0.44) / 0.16), 8)   # 11pt全角の1行文字数の目安
+        if intro:
+            self.text(s, px + 0.22, yy, pw - 0.44, 0.45,
+                      [[("読み方:" + intro, 10.5, False, INK2)]], line_spacing=1.3)
+            yy += 0.26 * max(1, -(-(len(intro) + 4) // (cpl + 3))) + 0.14
+            self.rect(s, px + 0.22, yy - 0.06, pw - 0.44, 0.012, GREY)
+            yy += 0.12
+        for it in items:
+            label, claim, body = (list(it) + [None] * 3)[:3]
+            self.text(s, px + 0.22, yy, pw - 0.44, 0.32,
+                      [[(label, 12.5, True, BLUE_TX), (" | ", 12, True, GREY),
+                        (claim, 12.5, True, INK)]])
+            claim_lines = max(1, -(-(len(label) + len(claim) + 2)
+                                   // max(int(cpl * 11 / 12.5), 8)))
+            yy += 0.30 * claim_lines + 0.06
+            if body:
+                self.text(s, px + 0.22, yy, pw - 0.44, 0.85,
+                          [[(body, 11, False, INK2)]], line_spacing=1.35)
+                yy += 0.23 * max(1, -(-len(body) // cpl)) + 0.24
+            else:
+                yy += 0.14
 
     def _waterfall(self, s, x, y, w, h, categories, values):
         """滝グラフ(ネイティブ図形で描画)。増減プロセスの分解(利益ブリッジ等)専用。
@@ -787,9 +1014,10 @@ class Deck:
 
     # ---------------------------------------------------------------- ⑧ ネイティブ表
     def table(self, title, headers, rows, lead=None, col_widths=None,
-              first_col_header=True, font_size=12, unit=None, source=None,
-              highlight_row=None):
+              first_col_header=True, font_size=13, unit=None, source=None,
+              highlight_row=None, note=None, takeaway=None):
         s = self._slide(LAYOUT_BODY, title=title)
+        _tb = self._reserve_takeaway(takeaway, source, note)
         y0 = self._lead(s, lead)
         if unit:
             self.text(s, self.MX, y0 - 0.05, self.CW, 0.3,
@@ -844,13 +1072,14 @@ class Deck:
                 if txt.startswith(("△", "-", "−", "▼")) and is_num:
                     color = RED
                 put(tbl.cell(ri, cji), txt, body_size, bold, color, fill, align)
-        self._source(s, source)
+        self._finish_takeaway(s, _tb, takeaway)
+        self._source(s, source, note)
         return s
 
     # ---------------------------------------------------------------- ⑪ 評価マトリクス(コンサル型)
     def matrix_eval(self, title, options, criteria, ratings, lead=None,
                     verdicts=None, verdict_header="位置づけ", recommend=None,
-                    source=None):
+                    source=None, note=None, takeaway=None):
         """選定・評価マトリクス(コンサル比較表)。候補を列に立て、左に比較軸の行を並べる。
 
         options : 列(候補)の名前リスト(最大4)
@@ -861,6 +1090,7 @@ class Deck:
         recommend: 強調する候補列の index(0始まり)
         """
         s = self._slide(LAYOUT_BODY, title=title)
+        _tb = self._reserve_takeaway(takeaway, source, note)
         y0 = self._lead(s, lead)
         ty = y0 + 0.15
         ncols = 1 + len(options)
@@ -934,12 +1164,14 @@ class Deck:
                 put(tbl.cell(ri, j + 1),
                     [([(v, 10.5, is_rec, BLUE_TX if is_rec else INK)], "center")],
                     LTBLUE if is_rec else "#E8F2FA")
-        self._source(s, source)
+        self._finish_takeaway(s, _tb, takeaway)
+        self._source(s, source, note)
         return s
 
     # ---------------------------------------------------------------- ⑫ 2軸マトリクス(ポジショニング)
     def matrix_2x2(self, title, x_axis, y_axis, items, lead=None,
-                   quadrants=None, emphasize=None, source=None):
+                   quadrants=None, emphasize=None, source=None, note=None,
+                   takeaway=None):
         """2軸ポジショニングマップ。
 
         x_axis / y_axis: (低ラベル, 高ラベル, 軸名)
@@ -948,6 +1180,7 @@ class Deck:
         emphasize: 強調する象限 index(0=左下,1=右下,2=左上,3=右上)
         """
         s = self._slide(LAYOUT_BODY, title=title)
+        _tb = self._reserve_takeaway(takeaway, source, note)
         y0 = self._lead(s, lead)
         px = self.MX + 1.05
         py = y0 + 0.30
@@ -994,7 +1227,8 @@ class Deck:
             self.rect(s, cx, cy, w, h, BLUE, shape=MSO_SHAPE.ROUNDED_RECTANGLE, adj=0.5)
             self.text(s, cx, cy, w, h, [[(name, 12, True, "#FFFFFF")]],
                       align="center", anchor="middle")
-        self._source(s, source)
+        self._finish_takeaway(s, _tb, takeaway)
+        self._source(s, source, note)
         return s
 
     # ---------------------------------------------------------------- ⑬ 関係図(ラベル付き矢印)
@@ -1024,7 +1258,7 @@ class Deck:
                 self._tag(s, x + 0.26, iy, sub)
                 iy += 0.46
             self.text(s, x + 0.26, iy, w - 0.52, bot - iy - 0.15,
-                      self.nest_paras(items, size=12), space_after=8)
+                      self.nest_paras(items, size=13), space_after=8)
             if i < n - 1:
                 ax = x + w + 0.10
                 aw = gap - 0.20
@@ -1034,18 +1268,20 @@ class Deck:
                 if arrows and i < len(arrows) and arrows[i]:
                     # ラベルはギャップ内に収める(2行まで折返し可。箱への重なり防止)
                     self.text(s, ax - 0.12, ay - 1.10, aw + 0.24, 0.82,
-                              [[(arrows[i], 10, True, BLUE_TX)]],
+                              [[(arrows[i], 11, True, BLUE_TX)]],
                               align="center", anchor="bottom")
         if band:
             self.rect(s, self.MX, bot + 0.22, self.CW, band_h, LTBLUE)
             self.text(s, self.MX + 0.2, bot + 0.22, self.CW - 0.4, band_h,
-                      [[(band, 13, True, BLUE_TX)]], align="center", anchor="middle")
+                      [[(band, 14, True, BLUE_TX)]], align="center", anchor="middle")
         self._source(s, source)
         return s
 
     # ---------------------------------------------------------------- ⑨ ロードマップ
-    def timeline(self, title, phases, lead=None):
+    def timeline(self, title, phases, lead=None, source=None, note=None,
+                 takeaway=None):
         s = self._slide(LAYOUT_BODY, title=title)
+        _tb = self._reserve_takeaway(takeaway, source, note)
         y0 = self._lead(s, lead)
         n = len(phases)
         colors = RAMP[-n:] if n <= len(RAMP) else [RAMP[min(i, len(RAMP) - 1)] for i in range(n)]
@@ -1061,10 +1297,12 @@ class Deck:
             bx = self.MX + i * (w - overlap) + (0.10 if i > 0 else 0)
             bw = w - overlap - 0.10
             by = ch_y + 1.10
-            self.text(s, bx + 0.06, by, bw, 0.45, [[(head, 14, True, BLUE_TX)]])
+            self.text(s, bx + 0.06, by, bw, 0.45, [[(head, 15, True, BLUE_TX)]])
             self.rect(s, bx + 0.06, by + 0.44, min(1.2, bw - 0.2), 0.035, CYAN)
             self.text(s, bx + 0.06, by + 0.62, bw - 0.10, self.BODY_BOT - by - 0.6,
-                      self.nest_paras(descs, size=11), space_after=6)
+                      self.nest_paras(descs, size=12), space_after=6)
+        self._finish_takeaway(s, _tb, takeaway)
+        self._source(s, source, note)
         return s
 
     # ---------------------------------------------------------------- ⑩ メッセージ / 結び
@@ -1083,6 +1321,231 @@ class Deck:
         return s
 
     # ---------------------------------------------------------------- 保存
+# ---------------------------------------------------------------- ⑮ エグゼクティブサマリ
+    def exec_summary(self, title, conclusion, reasons, ask=None, lead=None,
+                     reason_head=None, source=None, note=None):
+        """結論帯+理由カード(2〜3)+お願い帯。冒頭の「本日の要旨」1枚に使う。
+
+        conclusion: 結論の一文(濃紺帯に白抜き)   reasons: [(見出し, 本文, 参照|None), ...]
+        ask: (タグ, 本文, 補足|None) — 最後の依頼・ネクストアクション帯。省略可
+        lead を省略すると結論帯がキーメッセージを兼ねる。
+        """
+        s = self._slide(LAYOUT_BODY, title=title)
+        y0 = self._lead(s, lead) if lead else self.BODY_TOP + 0.15
+        self.card(s, self.MX, y0, self.CW, 0.98, fill=NAVY, line=None, adj=0.10)
+        self.text(s, self.MX + 0.30, y0 + 0.13, 2.0, 0.26, [[("結論", 11, True, CYAN)]])
+        self.text(s, self.MX + 0.30, y0 + 0.42, self.CW - 0.60, 0.5,
+                  [[(conclusion, 16, True, "#FFFFFF")]])
+        yy = y0 + 1.22
+        self.text(s, self.MX + 0.05, yy, self.CW, 0.3,
+                  [[(reason_head or f"この結論を支える{len(reasons)}つの理由",
+                     11.5, True, INK2)]])
+        yy += 0.38
+        bot = self.BODY_BOT - (1.06 if ask else 0.12)
+        n = len(reasons)
+        gap = 0.30
+        w = (self.CW - gap * (n - 1)) / n
+        for i, r in enumerate(reasons):
+            head, body, ref = (list(r) + [None] * 3)[:3]
+            x = self.MX + i * (w + gap)
+            self.card(s, x, yy, w, bot - yy, fill="#FFFFFF", line=GRID, lw=1.2)
+            self.text(s, x + 0.26, yy + 0.18, w - 0.52, 0.42,
+                      [[(f"{i+1:02d}", 19, True, BLUE)]])
+            self.text(s, x + 0.26, yy + 0.60, w - 0.52, 0.35,
+                      [[(head, 14.5, True, BLUE_TX)]])
+            self.text(s, x + 0.26, yy + 1.02, w - 0.52, bot - yy - 1.40,
+                      [[(body, 12, False, INK)]], line_spacing=1.4)
+            if ref:
+                self.text(s, x + 0.26, bot - 0.40, w - 0.52, 0.26,
+                          [[(ref, 9.5, False, GREY)]], align="right")
+        if ask:
+            tag, txt, sub = (list(ask) + [None] * 3)[:3]
+            ay = self.BODY_BOT - 0.88
+            self.card(s, self.MX, ay, self.CW, 0.88, fill=BG, line=None, adj=0.08)
+            tw = 0.50 + len(tag) * 0.18
+            self.rect(s, self.MX + 0.28, ay + 0.26, tw, 0.36, NAVY,
+                      shape=MSO_SHAPE.ROUNDED_RECTANGLE, adj=0.5)
+            self.text(s, self.MX + 0.28, ay + 0.26, tw, 0.36,
+                      [[(tag, 11, True, "#FFFFFF")]], align="center", anchor="middle")
+            tx = self.MX + 0.28 + tw + 0.25
+            if sub:
+                self.text(s, tx, ay + 0.15, self.W - self.MX - tx - 0.3, 0.4,
+                          [[(txt, 13.5, True, INK)]])
+                self.text(s, tx, ay + 0.51, self.W - self.MX - tx - 0.3, 0.3,
+                          [[(sub, 11, False, INK2)]])
+            else:
+                self.text(s, tx, ay, self.W - self.MX - tx - 0.3, 0.88,
+                          [[(txt, 13.5, True, INK)]], anchor="middle")
+        self._source(s, source, note)
+        return s
+
+    # ---------------------------------------------------------------- ⑯ 結論→根拠ツリー
+    def reason_tree(self, title, conclusion, reasons, lead=None, source=None,
+                    note=None, evidence_tag="根拠", takeaway=None):
+        """結論帯から2〜3カードへ分岐する論証ツリー(強み・選定理由の構造化)。
+
+        reasons: [(見出し, 本文, 根拠の一文|None), ...]
+        根拠はカード下部に「根拠」チップ+青太字で示す(数字を入れると強い)。
+        """
+        s = self._slide(LAYOUT_BODY, title=title)
+        _tb = self._reserve_takeaway(takeaway, source, note)
+        y0 = self._lead(s, lead) if lead else self.BODY_TOP + 0.15
+        cw_c = min(self.CW * 0.62, 7.8)
+        cx0 = self.MX + (self.CW - cw_c) / 2
+        self.card(s, cx0, y0, cw_c, 0.62, fill=NAVY, line=None, adj=0.16)
+        self.text(s, cx0 + 0.2, y0, cw_c - 0.4, 0.62,
+                  [[(conclusion, 15, True, "#FFFFFF")]], align="center", anchor="middle")
+        n = len(reasons)
+        gap = 0.34
+        w = (self.CW - gap * (n - 1)) / n
+        cy = y0 + 1.10
+        mid = self.MX + self.CW / 2
+        xs = [self.MX + i * (w + gap) + w / 2 for i in range(n)]
+        self.rect(s, mid - 0.006, y0 + 0.62, 0.012, 0.24, GREY)
+        self.rect(s, xs[0], y0 + 0.86, xs[-1] - xs[0], 0.012, GREY)
+        for xc in xs:
+            self.rect(s, xc - 0.006, y0 + 0.86, 0.012, cy - (y0 + 0.86), GREY)
+        bot = self.BODY_BOT - 0.12
+        for i, r in enumerate(reasons):
+            head, body, ev = (list(r) + [None] * 3)[:3]
+            x = self.MX + i * (w + gap)
+            self.card(s, x, cy, w, bot - cy, fill="#FFFFFF", line=GRID, lw=1.2)
+            self.rect(s, x + 0.26, cy + 0.22, 0.34, 0.34, BLUE, shape=MSO_SHAPE.OVAL)
+            self.text(s, x + 0.26, cy + 0.22, 0.34, 0.34,
+                      [[(str(i + 1), 12, True, "#FFFFFF")]], align="center", anchor="middle")
+            self.text(s, x + 0.72, cy + 0.25, w - 0.95, 0.34, [[(head, 14.5, True, INK)]])
+            self.rect(s, x + 0.26, cy + 0.70, w - 0.52, 0.012, GRID)
+            self.text(s, x + 0.26, cy + 0.88, w - 0.52, bot - cy - 1.85,
+                      [[(body, 12, False, INK2)]], line_spacing=1.45)
+            if ev:
+                ey = bot - 0.92
+                self.rect(s, x + 0.26, ey, w - 0.52, 0.012, GRID)
+                self._tag(s, x + 0.26, ey + 0.12, evidence_tag, size=9)
+                self.text(s, x + 0.26, ey + 0.52, w - 0.52, 0.3,
+                          [[(ev, 12.5, True, BLUE_TX)]])
+        self._finish_takeaway(s, _tb, takeaway)
+        self._source(s, source, note)
+        return s
+
+    # ---------------------------------------------------------------- ⑰ スイムレーン・ガント
+    def gantt(self, title, columns, lanes, phases=None, milestones=None,
+              lead=None, source=None, note=None, label_w=1.75, takeaway=None):
+        """フェーズ帯+レーン別バー+マイルストーン●の行程表(timeline の詳細版)。
+
+        columns   : 時間軸の列ラベル ["1ヶ月目", ...](等幅)
+        phases    : [(帯ラベル, 開始列, 終了列), ...](0始まり・両端含む)。省略可
+        lanes     : [(レーン名, [(バーlabel, 開始列, 終了列, style), ...]), ...]
+                    style: "solid"=青 | "dark"=濃紺 | "mid"=スチール | "light"=淡青 | "plan"=白+破線
+        milestones: [(列位置(float・列単位), ラベル), ...] — グリッド下の●
+        """
+        s = self._slide(LAYOUT_BODY, title=title)
+        _tb = self._reserve_takeaway(takeaway, source, note)
+        y0 = self._lead(s, lead)
+        gx = self.MX + label_w
+        gw = self.CW - label_w
+        n = len(columns)
+        cw_ = gw / n
+        y = y0
+        if phases:
+            for lab, c0, c1 in phases:
+                x0 = gx + c0 * cw_ + 0.03
+                x1 = gx + (c1 + 1) * cw_ - 0.03
+                self.rect(s, x0, y, x1 - x0, 0.34, BG)
+                self.text(s, x0, y, x1 - x0, 0.34, [[(lab, 11, True, BLUE_TX)]],
+                          align="center", anchor="middle")
+            y += 0.44
+        for i, c in enumerate(columns):
+            self.text(s, gx + i * cw_, y, cw_, 0.26, [[(str(c), 10.5, False, INK2)]],
+                      align="center")
+        y += 0.36
+        bot = self.BODY_BOT - (0.62 if milestones else 0.10)
+        for i in range(n + 1):
+            self.rect(s, gx + i * cw_ - 0.006, y, 0.012, bot - y, GRID)
+        lane_h = (bot - y) / len(lanes)
+        STYLES = {"solid": (BLUE, "#FFFFFF", None, False),
+                  "dark":  (NAVY, "#FFFFFF", None, False),
+                  "mid":   (STEEL, "#FFFFFF", None, False),
+                  "light": (LTBLUE, BLUE_TX, None, False),
+                  "plan":  ("#FFFFFF", BLUE_TX, STEEL, True)}
+        for li, (name, bars) in enumerate(lanes):
+            ly = y + li * lane_h
+            if li > 0:
+                self.rect(s, self.MX, ly - 0.006, self.CW, 0.012, GRID)
+            self.text(s, self.MX, ly, label_w - 0.15, lane_h,
+                      [[(name, 13, True, INK)]], anchor="middle")
+            for (lab, c0, c1, style) in bars:
+                bx0 = gx + c0 * cw_ + 0.06
+                bx1 = gx + (c1 + 1) * cw_ - 0.06
+                by = ly + lane_h / 2 - 0.21
+                fill, tcol, line, dash = STYLES[style]
+                self.rect(s, bx0, by, bx1 - bx0, 0.42, fill, line=line, lw=1.2,
+                          dash=dash, shape=MSO_SHAPE.ROUNDED_RECTANGLE, adj=0.5)
+                self.text(s, bx0 + 0.05, by, bx1 - bx0 - 0.10, 0.42,
+                          [[(lab, 10.5, True, tcol)]], align="center", anchor="middle")
+        self.rect(s, self.MX, bot - 0.006, self.CW, 0.012, GRID)
+        if milestones:
+            for pos, lab in milestones:
+                mx_ = gx + pos * cw_
+                self.rect(s, mx_ - 0.055, bot + 0.10, 0.11, 0.11, NAVY,
+                          shape=MSO_SHAPE.OVAL)
+                if mx_ - 1.6 < self.MX:          # 端の点はラベルを点に寄せる
+                    self.text(s, self.MX, bot + 0.26, 3.2, 0.26,
+                              [[(lab, 10, True, INK)]])
+                elif mx_ + 1.6 > self.W - self.MX:
+                    self.text(s, self.W - self.MX - 3.2, bot + 0.26, 3.2, 0.26,
+                              [[(lab, 10, True, INK)]], align="right")
+                else:
+                    self.text(s, mx_ - 1.6, bot + 0.26, 3.2, 0.26,
+                              [[(lab, 10, True, INK)]], align="center")
+        self._finish_takeaway(s, _tb, takeaway)
+        self._source(s, source, note)
+        return s
+
+    # ---------------------------------------------------------------- ⑱ 壁→打ち手プロセス
+    def process(self, title, steps, lead=None, source=None, note=None,
+                takeaway=None):
+        """番号付き縦ステップ+「壁→打ち手」注釈。流れの説明を論証に変える型。
+
+        steps: [(工程の一文, None), (工程の一文, (壁の一文, 打ち手の一文)), ...] 3〜6個
+        壁が無い工程は None。壁と打ち手はどこで標準が破れ、何を当てるかを一行ずつ。
+        """
+        s = self._slide(LAYOUT_BODY, title=title)
+        _tb = self._reserve_takeaway(takeaway, source, note)
+        y = self._lead(s, lead) + 0.05
+        rows = []
+        for st in steps:
+            if (isinstance(st, (tuple, list)) and len(st) == 2
+                    and (st[1] is None or isinstance(st[1], (tuple, list)))):
+                rows.append((st[0], st[1]))
+            else:
+                rows.append((st, None))
+        avail = self.BODY_BOT - 0.10 - y
+        base = min(avail / len(rows), 0.98)   # 行間の間延び防止(上に詰めて余りは下)
+        y += max(0.0, (avail - base * len(rows)) / 2 - 0.10)
+        cx = self.MX + 0.24
+        prev_bot = None
+        for i, (txt, gap) in enumerate(rows):
+            if prev_bot is not None:
+                self.rect(s, cx - 0.005, prev_bot + 0.05, 0.010,
+                          y - prev_bot - 0.10, GREY)
+            self.rect(s, cx - 0.19, y, 0.38, 0.38, "#FFFFFF", line=BLUE, lw=1.6,
+                      shape=MSO_SHAPE.OVAL)
+            self.text(s, cx - 0.19, y, 0.38, 0.38, [[(str(i + 1), 13, True, BLUE)]],
+                      align="center", anchor="middle")
+            self.text(s, cx + 0.36, y + 0.02, self.CW - 0.80, 0.36,
+                      [[(txt, 15, False, INK)]])
+            if gap:
+                wall, fix = gap
+                self.text(s, cx + 0.36, y + 0.46, self.CW - 0.80, 0.30,
+                          [[("壁 ", 11.5, True, INK2), (wall, 11.5, False, INK2),
+                            ("　→ 打ち手 ", 11.5, True, BLUE_TX),
+                            ("「" + fix + "」", 11.5, True, BLUE_TX)]])
+            prev_bot = y + 0.38
+            y += base
+        self._finish_takeaway(s, _tb, takeaway)
+        self._source(s, source, note)
+        return s
+
     def save(self, path):
         self.prs.save(path)
         return path
