@@ -1,8 +1,12 @@
-# ブランド資産・生成物は各スキルの .gitignore（assets/brand/ 等）で除外する。
+# 公開するのは Office 系の自作スキル(corp-slides / corp-excel)だけ。
+# それ以外はローカル専用として追跡しない(ホワイトリスト方式)。
+/*
+!/.gitignore
+!/corp-slides/
+!/corp-excel/
+
+# ブランド資産・生成物は各スキルの .gitignore(assets/brand/ 等)で除外する。
 # corp-slides / corp-excel はコードとドキュメントのみ追跡される。
 
-# Anthropic 公式ドキュメントスキル（source-available・再配布禁止）は public に含めない
-docx/
-pptx/
-xlsx/
-pdf/
+# Anthropic 公式ドキュメントスキル(docx/pptx/xlsx/pdf。source-available・再配布禁止)は
+# 上のホワイトリストに含めないことで public から除外している。
