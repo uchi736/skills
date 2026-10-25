@@ -2982,78 +2982,190 @@ class Deck:
         return s
 
     # ---------------------------------------------------------------- 図解の型(追加 2026-10-24)
+
+
+    def _cyc_tri(self, s, cx, cy, ang, fill=CYAN, length=0.30, base=0.28):
+        """進行方向を向いた三角(ang: 0=▶ 右 / 90=▼ 下 / 180=◀ 左 / 270=▲ 上)。中心 (cx, cy)。
+        長さ>底辺にして、どの向きでも矢じりに読めるようにする。"""
+        sp = self.rect(s, cx - base / 2, cy - length / 2, base, length, fill,
+                       shape=MSO_SHAPE.ISOSCELES_TRIANGLE)
+        sp.rotation = (ang + 90) % 360
+        return sp
+
+
+    def _cyc_break(self, text, cpl):
+        """カードの説明文を 2 行に折る。_soft_break は最後の候補で切るので 1 行目が満杯になりやすく、
+        代替フォントや和欧間の空きで 1 字だけ次行に落ちる。1.5 字の余裕を見て切り、行頭の空白を除く。"""
+        t = str(text)
+        if "\n" not in t and _jlen(t) > cpl - 1.0:
+            t2 = self._soft_break(t, cpl - 1.5)
+            if t2 == t:                          # 余裕を見ると切れ目が無い(2 行ぎりぎり)→ 余裕なしで切る
+                t2 = self._soft_break(t, cpl)
+            t = t2
+        return "\n".join(sg.strip() for sg in t.split("\n"))
+
+
+    def _cyc_layout(self, descs, kt, kb, aw, ah, gap0, w_lim):
+        """cycle_flow の寸法を決める。カード幅 → 文字サイズ(14→12pt)→ カード高さ → 周回路の順。
+
+        descs: 説明文の一覧 / kt, kb: 上段・下段の枚数 / aw, ah: 本文領域の幅・高さ
+        gap0 : 上下の段のすき間(下段なしなら、カード下辺と周回路の下辺のすき間)の最小値
+        w_lim: 周回路(角丸矩形)の幅の上限
+        戻り値 dict: cw ch dsz gap ht wt segs(改行済みの説明)lines(行数)fit(縦に収まったか)
+        """
+        TRI_B, GX, PAD, HEAD_H = 0.28, 0.60, 0.17, 0.40
+        ARC_EXT = 0.30                       # 弧がカードの外辺から出る量(最小)
+        rows = 2 if kb else 1
+
+        def card_h(lines, dsz):
+            return max(1.05, PAD + HEAD_H + max(lines) * dsz / 72 * 1.5 + PAD)
+
+        def fig_h(ch, gap):                  # 図の高さ(下段なしは下辺の ◀ の分を足す)
+            return 2 * ch + gap if rows == 2 else ch + gap + TRI_B / 2
+
+        def track_h(ch, gap):                # 周回路(角丸矩形)の高さ
+            return ch + gap if rows == 2 else ch / 2 + gap
+
+        def pick_size(cw):
+            """幅 cw のカードで、縦に収まる最大の文字サイズ(泣き別れが出ないものを優先)。"""
+            tw = cw - 2 * PAD
+            fits, first = [], None
+            for dsz in (14, 13, 12):
+                cpl = _cpl(tw, dsz)
+                segs = [self._cyc_break(d, cpl) for d in descs]
+                lines = [_nlines(t, cpl) for t in segs]
+                orphan = any(_jlen(sg) > cpl and 0 < (_jlen(sg) % cpl) <= 1.5
+                             for t in segs for sg in t.split("\n"))
+                cand = dict(dsz=dsz, segs=segs, lines=lines, ch=card_h(lines, dsz), orphan=orphan)
+                if first is None:
+                    first = cand
+                if fig_h(cand["ch"], gap0) <= ah + 1e-6:
+                    fits.append(cand)
+            if not fits:                     # 12pt でも入らない: 12pt のまま描き、呼び出し側で警告
+                cand = dict(cand, fit=False)
+                return cand
+            for c in fits:
+                if not c["orphan"]:
+                    return dict(c, fit=True)
+            return dict(fits[0], fit=True)
+
+        cw = min(4.0, (w_lim - 2 * ARC_EXT - (kt - 1) * GX) / kt)
+        for _ in range(6):                   # 弧の半径がカード幅より大きいときは幅を詰めて周回路を w_lim に収める
+            lay = pick_size(cw)
+            ht = track_h(lay["ch"], gap0)
+            ext = max(cw / 2 + ARC_EXT, ht / 2)
+            wt = (kt - 1) * (cw + GX) + 2 * ext
+            if wt <= w_lim + 1e-6 or cw <= 1.6:
+                break
+            cw = max(1.6, cw - (wt - w_lim) / kt)
+        gap = gap0
+        if lay["fit"]:                       # 縦の余りの 7 割を、すき間(丸みが出る)→ カードの高さ の順に配り、残りは上下の余白
+            usable = max(0.0, ah - fig_h(lay["ch"], gap)) * 0.7
+            d_gap = min(usable * 0.5, 0.35 if rows == 2 else 0.45)
+            gap += d_gap
+            lay["ch"] += min((usable - d_gap) / rows, 0.25)
+        ht = track_h(lay["ch"], gap)
+        ext = max(cw / 2 + ARC_EXT, ht / 2)
+        wt = (kt - 1) * (cw + GX) + 2 * ext
+        lay.update(cw=cw, gap=gap, ht=ht, wt=wt)
+        return lay
+
+
     def cycle_flow(self, title, steps, lead=None, center=None, source=None, note=None, takeaway=None,
-                   detail_title="各工程の成果物と判断"):
-        """サイクル図(改善の輪・PDCA・運用ループ)。左に円環(番号+見出し)、右に番号付きの欄。
-        steps : [(見出し 6 字以内, 右欄の 1 行 24 字以内), ...] 3〜6 個(順に時計回り)
-                右欄は見出しの言い換えでなく、別の情報(成果物・判断・詰まりどころと打ち手)を書く
-        detail_title: 右欄の見出し(例「各工程の詰まりどころと打ち手」)
-        center: 円の中に置く短い語(例「版ごとに 1 周」)。伝わらないなら省く
+                   detail_title=None):
+        """サイクル図(改善の輪・PDCA・運用ループ)。2 段の周回路: 上段は左→右、下段は右→左に工程カードを
+        並べ、左右の端を淡青の太い弧でつなぐ。カードの間は ▶、右端に ▼、左端に ▲。
+        steps : [(見出し 8 字以内, 説明 1〜2 行), ...] 3〜6 個(1→n の順に周回)
+                段の割り方: 3=上段 3(戻りは下辺の周回路)/ 4=2+2 / 5=3+2 / 6=3+3。カード幅は全段同じ
+        center: 周回路の内側(上下の段のすき間)に置く短い語(例「版ごとに 1 周」)。図形なしの青太字 14pt。
+                入らなければ警告して描かない。伝わらないなら省く
+        detail_title: 旧版(右欄あり)との互換のため受け取るだけ(使われない)
+        文字は見出し 14pt、説明 14→12pt(12pt でも入らなければ警告。説明を短くする)。
         輪・循環・繰り返しを lead で言う内容はこれ(表+「戻す」の 1 行より流れが見える)。"""
-        import math
-        from lxml import etree
-        if not 3 <= len(steps) <= 6:
+        n = len(steps)
+        if not 3 <= n <= 6:
             raise ValueError("cycle_flow は 3〜6 工程")
         s = self._slide(LAYOUT_BODY, title=title)
         self._kind("diagram")
+        if detail_title is not None:
+            self._warn("cycle_flow の detail_title は使われない(右欄は廃止)。工程の説明は steps の 2 要素目に書く")
         _tb = self._reserve_takeaway(takeaway, source, note)
         y0 = self._lead(s, lead)
         bot = self._body_bot(source, note) - 0.10
-        n = len(steps)
-        cx = self.MX + 3.4
-        cy = (y0 + bot) / 2
-        R = max(1.0, min(1.35, (bot - y0) / 2 - 1.1))
-        nr = 0.27
-        pts = []
-        for i in range(n):
-            deg = (270 + 360 * i / n) % 360
-            th = math.radians(deg)
-            pts.append((cx + R * math.cos(th), cy + R * math.sin(th), deg))
-        gdeg = math.degrees(math.asin(min(0.99, (nr + 0.12) / R)))
-        for i in range(n):                    # ノード間の弧(時計回り)+矢じり
-            a0 = (pts[i][2] + gdeg) % 360
-            a1 = (pts[(i + 1) % n][2] - gdeg) % 360
-            sp = s.shapes.add_shape(MSO_SHAPE.ARC, Inches(cx - R), Inches(cy - R), Inches(2 * R), Inches(2 * R))
-            sp.shadow.inherit = False
-            try:
-                sp.adjustments[0] = a0 * 0.6
-                sp.adjustments[1] = a1 * 0.6
-            except Exception:
-                pass
-            sp.fill.background()
-            sp.line.color.rgb = _rgb(STEEL)
-            sp.line.width = Pt(2.0)
-            ln = sp.line._get_or_add_ln()
-            for old in ln.findall(qn("a:tailEnd")):
-                ln.remove(old)
-            te = etree.SubElement(ln, qn("a:tailEnd"))
-            te.set("type", "triangle"); te.set("w", "med"); te.set("len", "med")
-        lw_lab = 1.6
-        for i, ((px, py, deg), (head, _)) in enumerate(zip(pts, steps)):
-            if _jlen(head) > 7:
-                self._warn(f"サイクル図の見出し「{head}」が長い(6 字以内)。説明は右の欄に書く")
-            self.rect(s, px - nr, py - nr, 2 * nr, 2 * nr, BLUE, shape=MSO_SHAPE.OVAL)
-            self.text(s, px - nr, py - nr, 2 * nr, 2 * nr, [[(str(i + 1), 14, True, "#FFFFFF")]],
-                      align="center", anchor="middle")
-            c, sn = math.cos(math.radians(deg)), math.sin(math.radians(deg))
-            if c > 0.35:
-                self.text(s, px + nr + 0.10, py - 0.18, lw_lab, 0.36, [[(head, 14, True, INK)]], anchor="middle")
-            elif c < -0.35:
-                self.text(s, px - nr - 0.10 - lw_lab, py - 0.18, lw_lab, 0.36, [[(head, 14, True, INK)]],
-                          align="right", anchor="middle")
-            elif sn < 0:
-                self.text(s, px - lw_lab / 2, py - nr - 0.44, lw_lab, 0.36, [[(head, 14, True, INK)]],
-                          align="center", anchor="bottom")
-            else:
-                self.text(s, px - lw_lab / 2, py + nr + 0.08, lw_lab, 0.36, [[(head, 14, True, INK)]],
-                          align="center")
+        top = y0 - 0.05
+        X, AW, AH = self.MX, self.CW, bot - top
+        kt, kb = {3: (3, 0), 4: (2, 2), 5: (3, 2), 6: (3, 3)}[n]
+        heads = [str(st[0]) for st in steps]
+        descs = [str(st[1]) if len(st) > 1 and st[1] is not None else "" for st in steps]
+        TRI_L, TRI_B, GX, PAD, HEAD_H, NUM = 0.30, 0.28, 0.60, 0.17, 0.40, 0.30
+        w_lim = AW - TRI_B - 0.30                      # 端の ▼▲ の底辺+左右 0.15in の余白
+        # ---- 中央の文言: 上下の段のすき間を、その行数ぶん広げておく
+        c_text = None
         if center:
-            self.text(s, cx - R + 0.45, cy - 0.45, 2 * R - 0.9, 0.9, [[(center, 14, True, BLUE_TX)]],
-                      align="center", anchor="middle", line_spacing=1.15)
-        rx = self.MX + 6.8
-        rw = self.CW - 6.8
-        bx, ly, bw, bh = self.panel(s, rx, y0, rw, bot - y0, detail_title)
-        self.numbered_list(s, bx, ly, bw, [(h, d) for h, d in steps], max_y=ly + bh)
+            c_text = center if isinstance(center, str) else "\n".join(str(c) for c in center)
+            cpl_c = _cpl(min(6.0, AW * 0.5), 14)
+            c_text = self._cyc_break(c_text, cpl_c)
+            gap0 = max(0.70, _nlines(c_text, cpl_c) * 14 / 72 * 1.35 + 0.36)
+        else:
+            gap0 = 0.55
+        lay = self._cyc_layout(descs, kt, kb, AW, AH, gap0, w_lim)
+        cw, ch, dsz, gap, Ht, Wt = lay["cw"], lay["ch"], lay["dsz"], lay["gap"], lay["ht"], lay["wt"]
+        rows = 2 if kb else 1
+        Hf = 2 * ch + gap if rows == 2 else ch + gap + TRI_B / 2
+        if not lay["fit"]:
+            self._warn(f"工程の説明が入りきらない(12pt でも縦 {Hf:.1f}in / 枠 {AH:.1f}in)。"
+                       "説明を短くする(1〜2 行)か工程を減らす")
+        for hd, ln in zip(heads, lay["lines"]):
+            if ln >= 3:
+                self._warn(f"工程「{hd}」の説明が {ln} 行になる見込み(2 行以内)。短くする")
+        # ---- 配置(縦は本文領域の中央。入らないときは上詰め)
+        cx = X + AW / 2
+        fig_top = top + max(0.0, (AH - Hf) / 2)
+        ty = fig_top + ch / 2                          # 上段のカード中心 y
+        cy = ty + Ht / 2                               # 周回路の中心 y
+        by = cy + Ht / 2                               # 下段のカード中心 y(下段なしなら周回路の下辺)
+        pitch = cw + GX
+        pts = [(cx - (kt - 1) / 2 * pitch + i * pitch, ty) for i in range(kt)] + \
+              [(cx + (kb - 1) / 2 * pitch - j * pitch, by) for j in range(kb)]
+        # ---- 描画: 周回路 → 矢じり → カード → 中央の文言(重なり順)
+        self.rect(s, cx - Wt / 2, cy - Ht / 2, Wt, Ht, None, line=LTBLUE, lw=7.0,
+                  shape=MSO_SHAPE.ROUNDED_RECTANGLE, adj=0.5)
+        for i in range(kt - 1):
+            self._cyc_tri(s, (pts[i][0] + pts[i + 1][0]) / 2, ty, 0)
+        self._cyc_tri(s, cx + Wt / 2, cy, 90)
+        if kb:
+            for j in range(kb - 1):
+                self._cyc_tri(s, (pts[kt + j][0] + pts[kt + j + 1][0]) / 2, by, 180)
+        else:
+            self._cyc_tri(s, cx, by, 180)
+        self._cyc_tri(s, cx - Wt / 2, cy, 270)
+        hw = cw - 2 * PAD - 0.42
+        cpl_h = _cpl(hw, 14)
+        for i, ((px, py), hd, desc) in enumerate(zip(pts, heads, lay["segs"])):
+            x, y = px - cw / 2, py - ch / 2
+            if _jlen(hd) > 8:
+                self._warn(f"工程の見出し「{hd}」が長い(8 字以内)")
+            if _jlen(hd) > cpl_h:
+                self._warn(f"工程の見出し「{hd}」が 1 行({cpl_h} 字)に入らない。短くする")
+            self.card(s, x, y, cw, ch)
+            self.rect(s, x + PAD, y + PAD, NUM, NUM, BLUE, shape=MSO_SHAPE.OVAL)
+            self.text(s, x + PAD, y + PAD, NUM, NUM, [[(str(i + 1), 12, True, "#FFFFFF")]],
+                      align="center", anchor="middle")
+            self.text(s, x + PAD + 0.42, y + PAD - 0.02, hw, 0.34, [[(hd, 14, True, BLUE_TX)]],
+                      anchor="middle")
+            if desc:
+                self.text(s, x + PAD, y + PAD + HEAD_H, cw - 2 * PAD, ch - 2 * PAD - HEAD_H + 0.05,
+                          [[(desc, dsz, False, INK)]], line_spacing=1.2)
+        if c_text:
+            cwid = max(1.5, min(Wt - Ht - 0.30, 7.0))
+            c_h = gap - 0.24
+            cpl_c = _cpl(cwid, 14)
+            t2 = self._cyc_break(c_text, cpl_c)
+            if _nlines(t2, cpl_c) * 14 / 72 * 1.35 > c_h + 1e-6:
+                self._warn(f"中央の文言「{c_text[:12]}…」が上下の段のすき間に入らないので描かない。短くするか省く")
+            else:
+                self.text(s, cx - cwid / 2, ty + ch / 2 + 0.12, cwid, c_h, [[(t2, 14, True, BLUE_TX)]],
+                          align="center", anchor="middle")
         self._finish_takeaway(s, _tb, takeaway)
         self._source(s, source, note)
         return s
