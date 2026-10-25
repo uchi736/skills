@@ -200,16 +200,16 @@ PYTHONUTF8=1 python $S/check_deck.py deck.pptx
 | 表紙 / 要旨 / 目次 / 型の選び方 / 中扉 / 結び | `cover` / `exec_summary` / `toc` / `table`(選定表) / `section` / `message` | 1 / 2 / 3 / 4 / 5 / 30 |
 | 並列の事実・方針・条件 | `content`(■●□ のラダー) | 6 |
 | 見出しの強い 4〜6 グループ(項目ごとに観点が違う。同じ観点で書けるなら table。「表は堅い」は理由にならない) | `content(style="blocks")` | 7 |
-| 変化(前後)・案の対比・並列の柱 | `boxes(arrow=True / False)`(柱は arrow=False。同じ属性が並ぶなら表) | 8 |
+| 変化(前後)・案の対比・並列の柱 | `boxes(arrow=True / False)`(柱は arrow=False。同じ属性が並ぶなら表)。到達点・土台の行は `goal=` / `base=`、箱ごとの効果の数字は `figures=` | 8 |
 | 仕組み・データの流れ(章頭) | 概念図: `panel`+`numbered_list`+`concept_grid`/`zone_cols`+`node_icon`/`arrow_h`/`arrow_v` | 10 |
 | 役割分担・受け渡し(矢印にラベル) | `boxes(arrows=[...], band=)`(= `flow`。8 の箱に矢印ラベルと土台) | — |
 | 結論と根拠 2〜3 | `tree(direction="down")`(= `reason_tree`) | 11 |
 | 関門・条件・合格基準 | `gate_table`(軽い表+※注。下段は関門の直後のことだけ) | 12 |
 | 手順そのもの | `step_flow`+`section_block` | 13 |
-| 循環する工程(改善の輪・PDCA・運用ループ) | `cycle_flow`(円環+番号付きの説明) | — |
+| 循環する工程(改善の輪・PDCA・運用ループ) | `cycle_flow`(2 段の周回路。工程カード+▶。中央には何も置かない) | — |
 | システム構成・階層(何がどの層にあるか) | `layers`(層の帯+要素の箱。`side=` で横断の帯) | 14 |
 | 担当 × 工程の流れ(誰が・いつ・何を) | `swimlane`(箱を流れの順に。矢印は自動) | 15 |
-| 目標 ← 要因 ← 具体策 / 課題の分解 | `tree`(横。direction="right"。11 の根と枝を横に並べる) | — |
+| 目標 ← 要因 ← 具体策 / 課題の分解 | `tree`(横。direction="right"。根の箱 → 枝(数値)→ 葉を「項目名 \| 数値」の表の行に。列見出しは `levels=`) | — |
 | アイコンの種類 | `icon`(13 種・線画) | 16 |
 | 推移・量の差 | `chart("bar")`(値軸なし・bracket に根拠の数字) | 18 |
 | 構成の推移 | `chart("stack")`(合計・直接ラベル・share_of・forecast_from) | 19 |

@@ -94,15 +94,25 @@ d.content(title, lead=None, bullets=None, source=None, style="ladder", note=None
 
 ### boxes — 対比・前後・並列の柱・受け渡し(見本 8 番)
 ```python
-d.boxes(title, boxes, lead=None, arrow=False, source=None, note=None, takeaway=None, arrows=None, band=None)
+d.boxes(title, boxes, lead=None, arrow=False, source=None, note=None, takeaway=None, arrows=None, band=None,
+        goal=None, base=None, figures=None)
 # boxes: [(見出し, 小見出し|None, [項目...]), ...] 2〜3 個
 # arrows=["ラベル", ...](len-1 個)と band="共通の土台" を渡すと、ラベル付き矢印の受け渡し図(= flow)
+# goal=(ラベル, 文) / base=(ラベル, 文): 柱の上の「到達点」の行 / 柱の下の「土台」の行(矢印は付かない)
+# figures=[(ラベル, "前 → 後")|None, ...]: 箱ごとの数値帯(箱の最下段。「→」の後の値だけ大きく太く)
 ```
 - 変化(Before/After)は `arrow=True`(細く高い ▶)、並列の案は False。
 - 箱は BLUE 見出し帯(17pt)+白本体+GREY 細枠。小見出しは青太字 16pt+細い下線。本文は全箱共通で 16→15→14pt。
 - 各箱 4〜5 項目で揃え、文末の形(〜する / 体言止め)も揃える。箱の下半分が空くなら項目を足す。
 - 並列の柱(3 本柱・3 観点)は `arrow=False`・小見出しなしで同じ型(見た目が同じなので型は分けない)。
   柱ごとに中身の種類が違うときだけで、各柱に同じ属性が同じ順で並ぶなら gate_table か table(数値)。
+- **到達点 → 柱 → 土台**(中期計画の骨格など「柱が到達点を支え、共通の基盤の上に立つ」)は `goal=` と `base=`。
+  どちらもラベル(青太字 12pt)+文(太字 14.5pt)の 1 行と GREY の細い罫線だけで、帯・箱・三角屋根にはしない
+  (帯で挟む案・屋根の案と比べて選定。2026-10-25)。文は 1 行に収める(超えると警告)。
+- **数値帯(`figures=`)**は、箱ごとの効果・実績を数字で見せたいとき(時間削減効果、件数の増減など)だけ付ける。
+  値は「前 → 後」の形で書くと後の値だけ 22pt 太字になる(△/- 始まりは赤、+/▲ 始まりは緑)。
+  数字が主役でない並列には付けない(無い箱は None)。到達点・土台・数値帯・結論帯を全部載せると本文が入らない
+  (警告が出る)ので、どれかを lead か注記に回す。
 - `header_boxes(s, y, bot, [(柱, [文...]), ...])` は boxes(arrow=False) と同じ見た目の部品(他の部品と組むときだけ)。
 
 ---
@@ -215,11 +225,15 @@ d.gate_table(title, gates, rows, lead=None, footnote=None, sections=None, source
 ### cycle_flow — サイクル図(見本なし)
 ```python
 d.cycle_flow(title, steps, lead=None, center=None, source=None, note=None, takeaway=None)
-# steps: [(見出し 6 字以内, 説明 1 行 24 字以内), ...] 3〜6(時計回り)   center: 円の中の短い語
+# steps: [(見出し 8 字以内, 説明 1〜2 行), ...] 3〜6(1 → n の順に周回)   center: 省略可の短い語(文字だけ)
 ```
-- 改善の輪・PDCA・運用ループなど、lead で「輪・回す」と言う内容。左に円環(番号+見出し)、右に番号付きの欄。
-- **右欄は輪の見出しの言い換えにしない**。各工程の詰まりどころと打ち手(`detail_title="各工程の詰まりどころと打ち手"`)か、
-  成果物と判断を書く。中央の語は輪の回し方(「版ごとに 1 周」)で、伝わらないなら省く。
+- 改善の輪・PDCA・運用ループなど、lead で「輪・回す」と言う内容。**2 段の周回路**: 上段を左→右、下段を右→左に
+  工程カード(白地+細枠。番号丸+見出し+説明)を並べ、間は ▶、左右の端は淡青の弧で上下をつなぐ
+  (3 工程は 1 段+下辺の戻り、4 は 2+2、5 は 3+2、6 は 3+3)。
+- 説明はカードの中(12〜14pt・2 行まで)。見出しの言い換えでなく、成果物・判断・数字を書く。
+- 中央(`center=`)は既定で置かない(目的は lead が言う。図形も置かない — ユーザー選定 2026-10-25)。lead に無い情報
+  (「毎週 1 周」のような回し方)を足したいときだけ短い語を渡すと、段の間に文字だけで入る。
+- 旧 `detail_title=` は受け取るだけで使わない(渡すと警告)。
 
 ### layers — レイヤー図(見本 14 番)
 ```python
@@ -243,12 +257,17 @@ d.swimlane(title, lanes, stages, cells, lead=None, source=None, note=None, takea
 ### tree — ロジックツリー(縦=見本 11 番。横は見本なし)
 ```python
 d.tree(title, root, branches, lead=None, source=None, note=None, takeaway=None, highlight=None,
-       direction="right")
-# root: 根の文(2 行まで)   branches: [(枝の見出し, [葉の文, ...]), ...] 2〜5。葉は各 4 まで
+       direction="right", levels=None)
+# root: 根の文(2 行まで)か (論点, 補足)   branches: [(枝の見出し, [葉...]), ...] 2〜5。葉は各 4 まで(全体 12 まで)
+#   枝は (見出し, 数値, [葉...]) でもよい(数値は枝の箱に太字で出る。△/- 始まりは赤)
+#   葉は "文" か (項目名, 数値・説明)(横ツリーでは「項目名 | 数値」の表の行になる)
 # direction="right": 横(目標 ← 要因 ← 具体策、課題の分解) / "down": 縦(結論 1 つと根拠 2〜3 のカード = reason_tree)
-# highlight: 強調する枝 index のリスト(lead で名指しする枝と合わせる)
+# highlight: 強調する枝 index のリスト。(枝 index, 葉 index) で葉だけの強調もできる(lead で名指しするものと合わせる)
+# levels: (根の列見出し, 枝の列見出し, 葉の列見出し)。例 ("論点", "要因(影響額)", "具体的事象(数値)")。省略時は描かない
 ```
-- 目標 ← 要因 ← 具体策、課題 → 分解、方針 → 施策。枝の見出しに数字(寄与 +3 pt)を入れると強い。
+- 横ツリーの見た目: 根は濃紺の直角の箱、枝は淡い箱+左の青バー+数値、葉は罫線で区切った表の行。接続線は GREY の細線。
+  枝の間に「+」「×」の記号は置かない(ユーザー選定 2026-10-25)。足し算か掛け算かは lead か levels の列見出しで言う。
+- 目標 ← 要因 ← 具体策、課題 → 分解、方針 → 施策。枝と葉には数字(寄与・影響額)を入れる。数値の無い分解は content で書く。
 - 結論と根拠 2〜3 を縦に並べるなら reason_tree、分解を横に広げるなら tree。
 
 ### HTML 図解 — HTML/CSS で組み、編集できる図形にする(scripts/html_shapes.py)
@@ -446,6 +465,8 @@ cover → exec_summary → toc → section(1) → 概念図 → 本文 ×n → s
 | グループごとに同じ属性が同じ順で並ぶ | table(対象 × 属性。zebra=False) |
 | 状態の変化 | boxes(arrow=True) |
 | 中身の種類が違う並列の柱 | boxes(arrow=False) |
+| 到達点 ← 柱 ← 土台(柱が目標を支え、基盤の上に立つ) | boxes(goal=, base=) |
+| 柱ごとの効果・実績を数字で見せる | boxes(figures=) |
 | 柱ごとに同じ属性が並ぶ | gate_table か table(数値) |
 | 役割分担・受け渡し | flow |
 | 強み・選定理由 | reason_tree |

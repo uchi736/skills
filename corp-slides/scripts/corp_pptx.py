@@ -1339,13 +1339,20 @@ class Deck:
 
     # ---------------------------------------------------------------- ⑤ ボックス対比(2〜3列)
     def boxes(self, title, boxes, lead=None, arrow=False, source=None, note=None,
-              takeaway=None, arrows=None, band=None):
+              takeaway=None, arrows=None, band=None, goal=None, base=None, figures=None):
         """箱の列(2〜3)。boxes: [(見出し, 小見出し|None, [項目...]), ...]
         arrow=True : 前後の変化(▶ を間に置く)。False: 並列の案・柱
         arrows=[...]: 矢印にラベルを付けた受け渡し(役割分担)。band= は下の共通の土台。この 2 つを渡すと flow と同じ描画
+        goal / base: 柱の上の「到達点」の行 / 柱の下の「土台」の行。"文" か (ラベル, 文)。
+                     帯や箱にせず、ラベル+文と細い罫線だけ(柱が到達点を支え、土台の上に立つ、を 1 枚で見せる。
+                     矢印は付かない。ユーザー選定 2026-10-25)
+        figures  : 箱ごとの数値帯 [(ラベル, "前 → 後")|None, ...]。箱の中の最下段を青罫で区切り、
+                   「→」の後の値だけ大きく太く出す。効果・実績を数字で見せるときだけ付ける
         各箱 4〜5 項目で揃える。同じ属性が同じ順で並ぶなら table にする。"""
         if arrows or band:
             return self.flow(title, boxes, arrows=arrows, lead=lead, band=band, source=source, note=note)
+        if figures is not None and len(figures) != len(boxes):
+            raise ValueError("figures は箱と同じ数(無い箱は None)")
         s = self._slide(LAYOUT_BODY, title=title)
         self._kind("box")
         _tb = self._reserve_takeaway(takeaway, source, note)
@@ -1354,8 +1361,15 @@ class Deck:
         gap = 0.58 if arrow else 0.30
         w = (self.CW - gap * (n - 1)) / n
         bot = self._body_bot(source, note) - 0.10
+        if goal:    # 到達点の行(ラベル+文、下に細い罫線)。箱はその下から
+            self._label_row(s, y0 + 0.05, goal, rule="below")
+            y0 += 0.05 + 0.62
+        if base:    # 土台の行(上に細い罫線、ラベル+文)。箱はその上で止める
+            self._label_row(s, bot - 0.46, base, rule="above")
+            bot -= 0.60
+        fig_h = 0.95 if (figures and any(figures)) else 0.0
         # 文字サイズは全ての箱で共通(各箱で入る最大のうち最小)
-        bsz = min(self._fit_size(it, w - 0.60, bot - (y0 + 0.55 + 0.20 + (0.60 if sb else 0)) - 0.17,
+        bsz = min(self._fit_size(it, w - 0.60, bot - fig_h - (y0 + 0.55 + 0.20 + (0.60 if sb else 0)) - 0.17,
                                  (16, 15, 14), f"箱「{hd}」") for hd, sb, it in boxes)
         for i, (head, sub, items) in enumerate(boxes):
             x = self.MX + i * (w + gap)
@@ -1370,15 +1384,61 @@ class Deck:
                 self.text(s, x + 0.30, iy, w - 0.60, 0.36, [[(sub, 16, True, BLUE_TX)]])
                 self.rect(s, x + 0.30, iy + 0.42, w - 0.60, 0.012, GRID)
                 iy += 0.60
-            self.text(s, x + 0.30, iy, w - 0.60, bot - iy - 0.17,
+            self.text(s, x + 0.30, iy, w - 0.60, bot - fig_h - iy - 0.17,
                       self.nest_paras(self._soft_items(items, w - 0.60, bsz), size=bsz),
                       space_after=8, hanging=True)
+            if fig_h and figures[i]:
+                self._figure_band(s, x, bot - fig_h, w, fig_h, figures[i])
             if arrow and i < n - 1:
                 self.tri_right(s, x + w + (gap - 0.30) / 2, (y0 + bot) / 2 - 0.42,
                                0.30, 0.85, CYAN)   # 細く高い▶(ユーザー手直し 2026-10-16)
         self._finish_takeaway(s, _tb, takeaway)
         self._source(s, source, note)
         return s
+
+    def _label_row(self, s, y, item, rule="below"):
+        """ラベル+文の 1 行(boxes の到達点・土台)。帯にせず、GREY の細い罫線で区切る。
+        rule="below": 文の下に罫線(上の行用) / "above": 文の上に罫線(下の行用)。占有高さは 0.46in。"""
+        lab, txt = (tuple(item) if isinstance(item, (tuple, list)) else (None, item))
+        txt = str(txt)
+        runs = []
+        if lab:
+            runs.append((str(lab) + "　", 12, True, BLUE_TX))
+        runs.append((txt, 14.5, True, INK))
+        if _jlen((str(lab) + "　" if lab else "") + txt) > _cpl(self.CW, 14.5, pad=0.3):
+            self._warn(f"boxes の到達点/土台の文が 1 行に入らない見込み: {txt[:20]}…")
+        if rule == "above":
+            self.rect(s, self.MX, y, self.CW, 0.014, GREY)
+            self.text(s, self.MX, y + 0.04, self.CW, 0.42, [runs], anchor="middle")
+        else:
+            self.text(s, self.MX, y, self.CW, 0.42, [runs], anchor="middle")
+            self.rect(s, self.MX, y + 0.44, self.CW, 0.014, GREY)
+
+    def _figure_band(self, s, x, y, w, h, fig):
+        """箱の中の数値帯: 青罫 → ラベル(12pt) → 「前 → 後」(後の値だけ 22pt 太字)。
+        値の色は △/-/▼ 始まりが RED、+/▲ 始まりが TEAL、他は BLUE_TX。"""
+        lab, val = (tuple(fig) if isinstance(fig, (tuple, list)) else (None, fig))
+        val = str(val)
+
+        def _col(v):
+            v = v.strip()
+            return RED if v[:1] in "△-▼" else (TEAL if v[:1] in "+▲" else BLUE_TX)
+
+        self.rect(s, x + 0.30, y, w - 0.60, 0.028, BLUE)
+        ty = y + 0.10
+        if lab:
+            self.text(s, x + 0.30, ty, w - 0.60, 0.26, [[(str(lab), 12, True, INK)]])
+            ty += 0.28
+        parts = re.split(r"\s*(?:→|->)\s*", val, maxsplit=1)
+        if len(parts) == 2:
+            runs = [(parts[0] + " → ", 14, False, INK2), (parts[1], 22, True, _col(parts[1]))]
+            need = (_jlen(parts[0]) + 2.5) * 14 / 72 + _jlen(parts[1]) * 22 / 72
+        else:
+            runs = [(val, 22, True, _col(val))]
+            need = _jlen(val) * 22 / 72
+        if need > w - 0.70:   # 全角 1 字 ≈ 1em で見積もる(前の値 14pt+後の値 22pt)
+            self._warn(f"boxes の数値帯「{val[:16]}…」が 1 行に入らない見込み。短くする")
+        self.text(s, x + 0.30, ty, w - 0.60, y + h - ty - 0.06, [runs], anchor="middle")
 
     # ---------------------------------------------------------------- ⑥ kpi(廃止)
     def kpi(self, *a, **k):
