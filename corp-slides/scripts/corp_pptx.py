@@ -3309,16 +3309,97 @@ class Deck:
         self._source(s, source, note)
         return s
 
+
+
     def tree(self, title, root, branches, lead=None, source=None, note=None, takeaway=None, highlight=None,
-             direction="right"):
-        """ロジックツリー。direction="right": 横(目標 ← 要因 ← 具体策 / 課題 → 分解。枝 2〜5・葉は各 4)
+             direction="right", levels=None):
+        """ロジックツリー。direction="right": 横(根 → 枝 2〜5 → 葉。目標 ← 要因 ← 具体策 / 課題の分解)
         direction="down": 縦(結論 1 つと根拠 2〜3 のカード。= reason_tree。枝は (見出し, [本文...], 根拠の一文|None))
-        root     : 根の文(2 行まで。\n で改行)
-        branches : [(枝の見出し, [葉の文, ...]), ...]。down のときは 3 つ目に根拠の一文を置ける
-        highlight: 強調する枝 index のリスト(淡青)。lead で名指しする枝と合わせる"""
+        root     : 根の文(\\n で改行可)か (論点, 補足の数値)
+        branches : [(枝の見出し, [葉...]), ...] か [(枝の見出し, 数値|None, [葉...]), ...](要素数で判別)。枝 2〜5
+                   葉は "文" か (項目名, 数値・説明)。1 枝 4 まで・全体 12 まで(超えた葉は描かずに警告)
+        highlight: 強調する枝 index のリスト。(枝 index, 葉 index) を混ぜると根→枝→葉の経路ごと強調(淡青+青太字)
+        levels   : (根の列見出し, 枝の列見出し, 葉の列見出し)。省略時は描かない。縦が足りなければ省いて警告
+        横の見た目: 根=NAVY の直角箱、枝=BG の箱+左の BLUE バー(見出し+数値。△/- は RED、+/▲ は TEAL)、
+        葉=「項目名 | 数値」の表の行(GREY の横罫・PERI の縦罫)。葉が多くて入らないときは 1 枝 1 帯に横並び。
+        文字は 12pt 以上を守り、入らないときは縮めずに警告する。枝の間に「+」「×」の記号は置かない。"""
         if direction == "down":
             reasons = [(b[0], list(b[1]), (b[2] if len(b) > 2 else None)) for b in branches]
             return self.reason_tree(title, root, reasons, lead=lead, source=source, note=note)
+        return self._tree_right(title, root, branches, lead, source, note, takeaway, highlight, levels)
+
+
+    def _tree_num_color(self, v):
+        """枝・葉の数値の色(table と同じ規則): △ - − ▼ 始まり=RED、+ ▲ 始まり=TEAL、それ以外=BLUE_TX。"""
+        t = str(v).strip()
+        if t.startswith(("△", "-", "−", "▼")):
+            return RED
+        if t.startswith(("+", "▲")):
+            return TEAL
+        return BLUE_TX
+
+
+    def _tree_tw(self, t, pt):
+        """文字列(\\n 可)の最長行の幅(inch)の見積もり(全角 1・半角 0.5 × CHAR_EM)。"""
+        return max(_jlen(seg) for seg in str(t).split("\n")) * pt / 72 * CHAR_EM
+
+
+    def _tree_line(self, s, x1, y1, x2, y2, color=GREY, th=0.012):
+        """水平か垂直の直線(細長い矩形)。ツリーの接続線・罫線に使う(回転させないので実機でもずれない)。"""
+        if abs(y2 - y1) < 1e-6:
+            x1, x2 = min(x1, x2), max(x1, x2)
+            if x2 - x1 > 1e-4:
+                self.rect(s, x1, y1 - th / 2, x2 - x1, th, color)
+        else:
+            y1, y2 = min(y1, y2), max(y1, y2)
+            if y2 - y1 > 1e-4:
+                self.rect(s, x1 - th / 2, y1, th, y2 - y1, color)
+
+
+    def _tree_norm(self, branches):
+        """branches を [(見出し, 数値|None, [(項目名, 数値|None, 対か), ...]), ...] に揃える。
+        旧形 (見出し, [葉...]) と新形 (見出し, 数値, [葉...]) を要素数と型で判別。葉は "文" か (項目名, 数値)。
+        上限(1 枝 4・全体 12)を超えた葉は描かずに警告する。"""
+        out, total = [], 0
+        for b in branches:
+            if isinstance(b, str):
+                b = (b, [])
+            b = list(b)
+            if len(b) >= 3:
+                name, metric, leaves = b[0], b[1], b[2]
+            elif len(b) == 2 and isinstance(b[1], (list, tuple)):
+                name, metric, leaves = b[0], None, b[1]
+            elif len(b) == 2:
+                name, metric, leaves = b[0], b[1], []
+            else:
+                name, metric, leaves = b[0], None, []
+            name = str(name)
+            leaves = list(leaves or [])
+            if len(leaves) > 4:
+                dropped = "・".join(str(x[0] if isinstance(x, (list, tuple)) else x)[:10] for x in leaves[4:])
+                self._warn(f"枝「{name[:12]}」の葉が {len(leaves)} 個。4 個以内にする(5 個目以降は描かない: {dropped})")
+                leaves = leaves[:4]
+            if total + len(leaves) > 12:
+                keep = max(0, 12 - total)
+                dropped = "・".join(str(x[0] if isinstance(x, (list, tuple)) else x)[:10] for x in leaves[keep:])
+                self._warn(f"葉が全体で 12 個を超える。枝「{name[:12]}」の {len(leaves) - keep} 個を描かない: {dropped}")
+                leaves = leaves[:keep]
+            total += len(leaves)
+            ll = []
+            for lf in leaves:
+                if isinstance(lf, (list, tuple)):
+                    ln = str(lf[0])
+                    lv = str(lf[1]) if len(lf) > 1 and lf[1] not in (None, "") else None
+                    ll.append((ln, lv, True))
+                else:
+                    ll.append((str(lf), None, False))
+            metric = None if metric in (None, "") else str(metric)
+            out.append((name, metric, ll))
+        return out
+
+
+    def _tree_right(self, title, root, branches, lead, source, note, takeaway, highlight, levels):
+        """横ロジックツリーの本体(tree(direction="right") から呼ぶ)。"""
         if not 2 <= len(branches) <= 5:
             raise ValueError("tree の枝は 2〜5")
         s = self._slide(LAYOUT_BODY, title=title)
@@ -3326,54 +3407,344 @@ class Deck:
         _tb = self._reserve_takeaway(takeaway, source, note)
         y0 = self._lead(s, lead)
         bot = self._body_bot(source, note) - 0.10
-        n = len(branches)
-        rw_, bw_ = 2.5, 3.2
-        trunk_x = self.MX + rw_ + 0.40
-        bx = trunk_x + 0.40
-        lx = bx + bw_ + 0.35
-        lw_ = self.MX + self.CW - lx
-        cpl = _cpl(lw_ - 0.1, 13, pad=0.3)
-        sizes = []
-        for name, leaves in branches:
-            if len(leaves) > 4:
-                self._warn(f"枝「{name}」の葉が {len(leaves)} 個。4 個以内にする")
-            rows = max(1, sum(_nlines(self._soft_break(l, cpl), cpl) for l in leaves))
-            sizes.append(max(0.72, rows * 0.30 + 0.34))
-        gap = 0.18
-        avail = bot - y0
-        total = sum(sizes) + gap * (n - 1)
-        if total > avail + 0.05:
-            self._warn(f"ツリーが本文領域を {total - avail:.2f}in 超える見込み。葉を減らす")
-            sc = (avail - gap * (n - 1)) / max(sum(sizes), 1e-9)
-            sizes = [h * sc for h in sizes]
+        norm = self._tree_norm(branches)
+        n = len(norm)
+        L = sum(len(ll) for _, _, ll in norm)
+        X, AW = self.MX, self.CW
+        WHITE = "#FFFFFF"
+        BRS, RTS, RSS, LVS = 14, 16, 12, 12          # 枝見出し・根の論点・根の補足・列見出し
+        LVH = 0.44                                    # 列見出しの行の高さ(文字 0.27+下線+余白)
+        # ---- 強調: int=枝(根→枝の線も青)、(枝, 葉)=経路ごと(枝の箱・葉の行・線)
+        if highlight is None:
+            hl_items = []
+        elif isinstance(highlight, int):
+            hl_items = [highlight]
         else:
-            extra = (avail - total) / n
-            sizes = [h + extra for h in sizes]
-        ys, y = [], y0
-        for h in sizes:
-            ys.append((y, h))
-            y += h + gap
-        root_h = min(1.4, avail * 0.45)
-        root_y = y0 + (avail - root_h) / 2
-        self.rect(s, self.MX, root_y, rw_, root_h, BLUE)
-        self.text(s, self.MX + 0.12, root_y, rw_ - 0.24, root_h, [[(root, 15, True, "#FFFFFF")]],
-                  align="center", anchor="middle", line_spacing=1.2)
-        rcy = root_y + root_h / 2
-        cys = [yy + h / 2 for yy, h in ys]
-        self._line_seg(s, self.MX + rw_, rcy, trunk_x, rcy, GREY, 1.25)
-        self._line_seg(s, trunk_x, min(cys[0], rcy), trunk_x, max(cys[-1], rcy), GREY, 1.25)
-        hl = set(highlight or [])
-        for i, ((yy, h), cy, (name, leaves)) in enumerate(zip(ys, cys, branches)):
-            self._line_seg(s, trunk_x, cy, bx, cy, GREY, 1.25)
-            box_h = min(h, 0.9)
-            box_y = cy - box_h / 2
-            self.rect(s, bx, box_y, bw_, box_h, LTBLUE if i in hl else "#FFFFFF", line=GREY, lw=0.75)
-            self.text(s, bx + 0.12, box_y, bw_ - 0.24, box_h, [[(name, 14, True, BLUE_TX if i in hl else INK)]],
-                      anchor="middle", line_spacing=1.15)
-            if leaves:
-                self._line_seg(s, bx + bw_, cy, lx - 0.10, cy, GREY, 1.25)
-                paras = self.nest_paras(self._soft_items(list(leaves), lw_ - 0.1, 13), size=13)
-                self.text(s, lx, yy, lw_ - 0.1, h, paras, space_after=4, hanging=True, anchor="middle")
+            hl_items = list(highlight)
+        hl_b, hl_l = set(), set()
+        for h in hl_items:
+            if isinstance(h, (tuple, list)):
+                bi = int(h[0])
+                hl_b.add(bi)
+                if len(h) > 1 and h[1] is not None:
+                    hl_l.add((bi, int(h[1])))
+            else:
+                hl_b.add(int(h))
+        for bi in sorted(hl_b):
+            if not 0 <= bi < n:
+                self._warn(f"highlight の枝 index {bi} が範囲外(枝は {n} 本)")
+        for bi, li in sorted(hl_l):
+            if 0 <= bi < n and not 0 <= li < len(norm[bi][2]):
+                self._warn(f"highlight の葉 index ({bi}, {li}) が範囲外")
+        # ---- 根の文
+        if isinstance(root, (tuple, list)):
+            rhead = str(root[0])
+            rsub = str(root[1]) if len(root) > 1 and root[1] not in (None, "") else None
+        else:
+            rhead, rsub = str(root), None
+            segs = rhead.split("\n")          # 旧形の文字列: 「(」で始まる行以降は補足として小さく出す
+            k = next((i for i, sg in enumerate(segs) if i > 0 and sg.lstrip().startswith(("(", "("))), None)
+            if k is not None:
+                rhead, rsub = "\n".join(segs[:k]), "\n".join(segs[k:])
+        lv = (list(levels) + [None] * 3)[:3] if levels else None
+
+        # ---- 横の配分(内容から根・枝の幅を決め、残りを葉に渡す)
+        def geom(mode, inline):
+            if mode == "A":
+                r_lo, r_hi, b_lo, b_hi, g1, g2 = 1.9, AW * 0.20, 2.0, AW * 0.235, 0.55, 0.50
+            else:
+                r_lo, r_hi, b_lo, b_hi, g1, g2 = 1.8, AW * 0.165, 1.9, AW * 0.19, 0.45, 0.40
+            sub_tw = self._tree_tw(rsub, RSS) if rsub else 0.0
+            r_nat = max(self._tree_tw(rhead, RTS), (sub_tw + 0.08 if sub_tw <= 1.6 else sub_tw * 0.5)) + 0.44
+            root_w = min(max(r_nat, r_lo), r_hi)
+            if inline:      # 見出しと数値を 1 行に並べる幅
+                b_nat = max(self._tree_tw(nm + ("  " + m if m else ""), BRS) for nm, m, _ in norm) + 0.56
+            else:
+                b_nat = max(max(self._tree_tw(nm, BRS), (self._tree_tw(m, BRS) if m else 0)) for nm, m, _ in norm) + 0.50
+            br_w = min(max(b_nat, b_lo), b_hi)
+            bx = X + root_w + g1
+            lx = bx + br_w + g2
+            return root_w, br_w, bx, lx, X + AW - lx, g1, g2
+
+        def total(M, dh, gb):
+            t = 0.0
+            for hs, bm in zip(M["rows_h"], M["bmin"]):
+                t += max(sum(h + dh for h in hs), bm)
+            return t + gb * (n - 1)
+
+        def metrics(mode, lsz, inline):
+            """モード(A=表の行 / B=帯に横並び)・葉の文字サイズ・枝の文言の置き方(inline=見出しと数値を 1 行)ごとの
+            所要寸法。inline で 1 行に入らない枝があるとき、B でセルの折り返しが過ぎるときは None(その組み合わせは使わない)。"""
+            root_w, br_w, bx, lx, lw_, g1, g2 = geom(mode, inline)
+            vsz = max(12, lsz - 1)
+            M = dict(mode=mode, lsz=lsz, vsz=vsz, inline=inline, root_w=root_w, br_w=br_w, bx=bx, lx=lx, lw=lw_,
+                     g1=g1, g2=g2, rows_h=[], rt=[], bmin=[], bt=[], warn=[])
+            btw = br_w - 0.08 - 0.30                  # 枝の文字の幅
+            cpl_b = _cpl(btw, BRS, pad=0.12)
+            for name, metric, ll in norm:
+                t = self._soft_break(name, cpl_b)
+                nl = _nlines(t, cpl_b)
+                if inline:
+                    if nl > 1 or self._tree_tw(name + ("  " + metric if metric else ""), BRS) > btw - 0.06:
+                        return None
+                    need = 0.50
+                else:
+                    need = max(nl * BRS / 72 * 1.15 + (BRS / 72 * 1.15 + 0.04 if metric else 0) + 0.22, 0.54)
+                M["bt"].append((t, nl, need))
+                if nl > 2:
+                    M["warn"].append(f"枝「{name[:12]}」の見出しが {nl} 行になる見込み。短くする")
+            if mode == "A":
+                lpad, rpad = 0.16, 0.10
+                names = [ln for _, _, ll in norm for ln, _, p in ll if p]
+                hcol = min(max(max(self._tree_tw(x, lsz) for x in names) + 0.14, 1.2), lw_ * 0.42) if names else 0.0
+                dcol = lw_ - lpad - rpad - hcol - 0.26
+                full = lw_ - lpad - rpad
+                M.update(lpad=lpad, rpad=rpad, hcol=hcol, dcol=dcol, gb=0.18, gb_cap=0.45, dh_cap=0.16)
+                for i, (name, metric, ll) in enumerate(norm):
+                    rr, hs = [], []
+                    for ln, lv_, pair in ll:
+                        if pair:
+                            cpl_h = _cpl(hcol, lsz, pad=0.10)
+                            n_t = self._soft_break(ln, cpl_h)
+                            n_l = _nlines(n_t, cpl_h)
+                            if lv_:
+                                cpl_d = _cpl(dcol, vsz, pad=0.10)
+                                v_t = self._soft_break(lv_, cpl_d)
+                                v_l = _nlines(v_t, cpl_d)
+                            else:
+                                v_t, v_l = None, 0
+                            h = max(n_l * lsz / 72 * 1.15, v_l * vsz / 72 * 1.2) + 0.17
+                        else:
+                            cpl_f = _cpl(full, lsz, pad=0.10)
+                            n_t = self._soft_break(ln, cpl_f)
+                            n_l = _nlines(n_t, cpl_f)
+                            v_t, v_l = None, 0
+                            h = n_l * lsz / 72 * 1.2 + 0.17
+                        if n_l > 2:
+                            M["warn"].append(f"葉「{ln[:12]}」が {n_l} 行になる見込み。短くする")
+                        if v_l > 2:
+                            M["warn"].append(f"葉「{ln[:12]}」の数値・説明が {v_l} 行になる見込み。短くする")
+                        rr.append((n_t, v_t, n_l, v_l))
+                        hs.append(max(h, 0.36))
+                    M["rt"].append(rr)
+                    M["rows_h"].append(hs)
+                    M["bmin"].append(M["bt"][i][2])
+            else:
+                kmax = max(len(ll) for _, _, ll in norm)
+                slot_w = lw_ / kmax
+                cw = slot_w - 0.30
+                M.update(slot_w=slot_w, gb=0.12, gb_cap=0.32, dh_cap=0.14)
+                for i, (name, metric, ll) in enumerate(norm):
+                    rr, hmax = [], 0.0
+                    for ln, lv_, pair in ll:
+                        cpl_c = _cpl(cw, lsz, pad=0.10)
+                        n_t = self._soft_break(ln, cpl_c)
+                        n_l = _nlines(n_t, cpl_c)
+                        if lv_:
+                            cpl_v = _cpl(cw, vsz, pad=0.10)
+                            v_t = self._soft_break(lv_, cpl_v)
+                            v_l = _nlines(v_t, cpl_v)
+                        else:
+                            v_t, v_l = None, 0
+                        if n_l > 2 or v_l > 3:
+                            return None          # 帯のセルで折り返しが過ぎる → この組み合わせは使わない
+                        h = n_l * lsz / 72 * 1.15 + (v_l * vsz / 72 * 1.2 + 0.04 if lv_ else 0) + 0.20
+                        rr.append((n_t, v_t, n_l, v_l))
+                        hmax = max(hmax, h)
+                    M["rt"].append(rr)
+                    M["rows_h"].append([max(hmax, 0.58)] if ll else [])
+                    M["bmin"].append(M["bt"][i][2])
+            M["total"] = total(M, 0.0, M["gb"])
+            return M
+
+        # ---- 当てはめ: 表の行(A)→ 帯(B)の順に、葉 13pt → 12pt → 列見出し無し、それぞれ枝の文言は 2 段 → 1 行
+        AH_all = bot - y0
+        ladder = [(mode, lsz, use_lv, inline) for mode in ("A", "B")
+                  for lsz, use_lv in ((13, True), (12, True), (12, False)) for inline in (False, True)]
+        cands = []
+        for mode, lsz, use_lv, inline in ladder:
+            if use_lv and not lv:
+                continue
+            if mode == "B" and L == 0:
+                continue
+            M = metrics(mode, lsz, inline)
+            if M is None:
+                continue
+            AH = AH_all - (LVH if use_lv else 0.0)
+            cands.append((M["total"] <= AH + 1e-6, M["total"] - AH, mode, lsz, use_lv, M))
+        chosen = next((c for c in cands if c[0]), None)
+        if chosen is None:
+            chosen = min(cands, key=lambda c: c[1])
+            self._warn(f"ツリーが本文領域を {chosen[1]:.2f}in 超える見込み(12pt 未満には落とさない)。"
+                       "葉を減らすか文を短くする。takeaway を外すと 0.72in 空く")
+        fits, over, mode, lsz, use_lv, M = chosen
+        for w in M["warn"]:
+            self._warn(w)
+        if lv and not use_lv:
+            self._warn("縦が足りないため列見出し(levels)を省いた。葉を減らすか文を短くすると出せる")
+        vsz = M["vsz"]
+        root_w, br_w, bx, lx, lw_, g1, g2 = (M["root_w"], M["br_w"], M["bx"], M["lx"], M["lw"], M["g1"], M["g2"])
+        AH = AH_all - (LVH if use_lv else 0.0)
+        top = y0 + (LVH if use_lv else 0.0)
+        gb = M["gb"]
+        dh = 0.0
+        if fits:                                   # 余白は 行を少し高く → 枝の間隔 → 残りの 4 割を上に
+            while dh + 0.01 <= M["dh_cap"] and total(M, dh + 0.01, gb) <= AH:
+                dh += 0.01
+            while gb + 0.01 <= M["gb_cap"] and total(M, dh, gb + 0.01) <= AH:
+                gb += 0.01
+            y = top + max(0.0, AH - total(M, dh, gb)) * 0.4
+        else:
+            y = top
+        slots = []                                 # 枝ごと (slot_y, slot_h, [(row_y, row_h), ...])
+        for i in range(n):
+            hs = [h + dh for h in M["rows_h"][i]]
+            lh_sum = sum(hs)
+            sh = max(lh_sum, M["bmin"][i])
+            ry = y + (sh - lh_sum) / 2
+            rows = []
+            for h in hs:
+                rows.append((ry, h))
+                ry += h
+            slots.append((y, sh, rows))
+            y += sh + gb
+        cys = [sy + sh / 2 for sy, sh, _ in slots]
+        trunk_x = X + root_w + g1 / 2
+        ex = bx + br_w                              # 枝の右端
+        sub_x = ex + g2 / 2                         # 枝→葉の縦線
+        th, th_hl = 0.012, 0.028
+
+        # ---- 列見出し
+        if use_lv:
+            for lab, xx, ww in zip(lv, (X, bx, lx), (root_w, br_w, lw_)):
+                if lab:
+                    self.text(s, xx, y0, ww, 0.27, [[(str(lab), LVS, True, INK2)]], anchor="bottom", space_after=0)
+                    self.rect(s, xx, y0 + 0.30, ww, 0.012, GREY)
+
+        # ---- 根(NAVY の直角箱。枝の中心の中点に置く)
+        rc = (cys[0] + cys[-1]) / 2
+        rtw = root_w - 0.40
+        rts = RTS
+        for rts in (RTS, 14):                      # 16pt で 4 行以上になるなら 14pt(それ未満にはしない)
+            cpl_r = _cpl(rtw, rts, pad=0.08)
+            head_t = "\n".join(self._soft_break(seg, cpl_r) for seg in rhead.split("\n"))
+            h_n = _nlines(head_t, cpl_r)
+            if h_n <= 3:
+                break
+        if h_n > 3:
+            self._warn(f"根の論点が {h_n} 行になる見込み。短くするか補足(root=(論点, 補足))に回す")
+        paras = [[(head_t, rts, True, WHITE)]]
+        rneed = h_n * rts / 72 * 1.2 + 0.50
+        if rsub:
+            cpl_s = _cpl(rtw, RSS, pad=0.08)
+            sub_t = "\n".join(self._soft_break(seg, cpl_s) for seg in rsub.split("\n"))
+            s_n = _nlines(sub_t, cpl_s)
+            if s_n > 3:
+                self._warn(f"根の補足が {s_n} 行になる見込み。短くする")
+            rneed += s_n * RSS / 72 * 1.25 + 0.10
+            paras.append([(sub_t, RSS, False, LTBLUE)])
+        span = cys[-1] - cys[0]
+        rh = min(max(rneed, 1.15), max(span + 0.9, rneed), bot - top)
+        ry = min(max(rc - rh / 2, top), bot - rh)
+        rcy = ry + rh / 2
+        # ---- 接続線(GREY。強調経路は最後に BLUE で上書き)
+        self._tree_line(s, X + root_w, rcy, trunk_x, rcy, GREY, th)
+        self._tree_line(s, trunk_x, min(cys[0], rcy), trunk_x, max(cys[-1], rcy), GREY, th)
+        for i in range(n):
+            self._tree_line(s, trunk_x, cys[i], bx, cys[i], GREY, th)
+        leaf_cys = []
+        for i, ((name, metric, ll), (sy, sh, rows)) in enumerate(zip(norm, slots)):
+            lc = [ry_ + rh_ / 2 for ry_, rh_ in rows]
+            leaf_cys.append(lc)
+            if not ll:
+                continue
+            cy = cys[i]
+            if mode == "B" or (len(lc) == 1 and abs(lc[0] - cy) < 0.01):
+                self._tree_line(s, ex, cy, lx, cy, GREY, th)
+            else:
+                self._tree_line(s, ex, cy, sub_x, cy, GREY, th)
+                self._tree_line(s, sub_x, min(lc[0], cy), sub_x, max(lc[-1], cy), GREY, th)
+                for lcy in lc:
+                    self._tree_line(s, sub_x, lcy, lx, lcy, GREY, th)
+        # ---- 根の箱
+        self.rect(s, X, ry, root_w, rh, NAVY)
+        self.text(s, X + 0.20, ry, rtw, rh, paras, anchor="middle", space_after=6, line_spacing=1.15)
+        # ---- 枝と葉
+        bar_w = 0.08
+        for i, ((name, metric, ll), (sy, sh, rows)) in enumerate(zip(norm, slots)):
+            hl = i in hl_b
+            box_h = min(sh, 1.6) if mode == "A" else sh
+            by = sy + (sh - box_h) / 2
+            self.rect(s, bx, by, br_w, box_h, LTBLUE if hl else BG)
+            self.rect(s, bx, by, bar_w, box_h, BLUE)
+            t, nl, _need = M["bt"][i]
+            col_h = BLUE_TX if hl else INK
+            tx, tw = bx + bar_w + 0.16, br_w - bar_w - 0.30
+            if not M["inline"] or not metric:
+                bp = [[(t, BRS, True, col_h)]]
+                if metric:
+                    bp.append([(metric, BRS, True, self._tree_num_color(metric))])
+                self.text(s, tx, by, tw, box_h, bp, anchor="middle", space_after=3, line_spacing=1.1)
+            else:
+                self.text(s, tx, by, tw, box_h,
+                          [[(name, BRS, True, col_h), ("  " + metric, BRS, True, self._tree_num_color(metric))]],
+                          anchor="middle", space_after=0, line_spacing=1.1)
+            if not ll:
+                continue
+            if mode == "A":
+                lpad, rpad, hcol, dcol = M["lpad"], M["rpad"], M["hcol"], M["dcol"]
+                for j, ((ln, lv_, pair), (ry_, rh_), rt) in enumerate(zip(ll, rows, M["rt"][i])):
+                    n_t, v_t = rt[0], rt[1]
+                    lhl = (i, j) in hl_l
+                    if lhl:
+                        self.rect(s, lx, ry_, lw_, rh_, LTBLUE)
+                    self._tree_line(s, lx, ry_ + rh_, lx + lw_, ry_ + rh_, GREY, 0.010)
+                    ncol = BLUE_TX if lhl else INK
+                    if pair:
+                        self.text(s, lx + lpad, ry_, hcol, rh_, [[(n_t, lsz, True, ncol)]],
+                                  anchor="middle", space_after=0, line_spacing=1.1)
+                        if v_t:
+                            dx = lx + lpad + hcol + 0.10
+                            self._tree_line(s, dx, ry_ + 0.08, dx, ry_ + rh_ - 0.08, PERI, 0.012)
+                            self.text(s, dx + 0.16, ry_, dcol, rh_, [[(v_t, vsz, False, INK)]],
+                                      anchor="middle", space_after=0, line_spacing=1.15)
+                    else:
+                        self.text(s, lx + lpad, ry_, lw_ - lpad - rpad, rh_, [[(n_t, lsz, lhl, ncol)]],
+                                  anchor="middle", space_after=0, line_spacing=1.15)
+            else:
+                slot_w = M["slot_w"]
+                ry_, rh_ = rows[0]
+                self.rect(s, lx, ry_, slot_w * len(ll), rh_, BG)
+                for j, ((ln, lv_, pair), rt) in enumerate(zip(ll, M["rt"][i])):
+                    cx0 = lx + j * slot_w
+                    lhl = (i, j) in hl_l
+                    if lhl:
+                        self.rect(s, cx0, ry_, slot_w, rh_, LTBLUE)
+                    if j > 0:
+                        self._tree_line(s, cx0, ry_ + 0.10, cx0, ry_ + rh_ - 0.10, PERI, 0.012)
+                    ncol = BLUE_TX if lhl else INK
+                    cp = [[(rt[0], lsz, pair or lhl, ncol)]]
+                    if rt[1]:
+                        cp.append([(rt[1], vsz, False, INK)])
+                    self.text(s, cx0 + 0.15, ry_, slot_w - 0.30, rh_, cp, anchor="middle",
+                              space_after=2, line_spacing=1.12)
+        # ---- 強調経路(BLUE の太線を上に重ねる)
+        for i in sorted(hl_b):
+            if not 0 <= i < n:
+                continue
+            self._tree_line(s, X + root_w, rcy, trunk_x, rcy, BLUE, th_hl)
+            self._tree_line(s, trunk_x, rcy, trunk_x, cys[i], BLUE, th_hl)
+            self._tree_line(s, trunk_x, cys[i], bx, cys[i], BLUE, th_hl)
+        for i, j in sorted(hl_l):
+            if not (0 <= i < n and 0 <= j < len(leaf_cys[i])):
+                continue
+            cy, lcy = cys[i], leaf_cys[i][j]
+            if mode == "B" or abs(lcy - cy) < 0.01:
+                self._tree_line(s, ex, cy, lx, cy, BLUE, th_hl)
+            else:
+                self._tree_line(s, ex, cy, sub_x, cy, BLUE, th_hl)
+                self._tree_line(s, sub_x, cy, sub_x, lcy, BLUE, th_hl)
+                self._tree_line(s, sub_x, lcy, lx, lcy, BLUE, th_hl)
         self._finish_takeaway(s, _tb, takeaway)
         self._source(s, source, note)
         return s
